@@ -1,0 +1,25 @@
+[
+    {
+        "upstream_version": "6.1.2",
+        "upstream_version_dt": "2016-16-16 10:45 ET",
+        "archive": "gmp-<upstream_version>.tar.xz",
+        "branch_readme": "gmp-<upstream_version>.tar.xz.url"
+    },
+    {
+        "upstream_version": "0.18",
+        "upstream_version_dt": "2016-12-19",
+        "archive": "isl-<upstream_version>.tar.xz",
+        "branch_readme": "isl-<upstream_version>.tar.xz.url"
+    },
+    {
+        "upstream_version": "1.1.0",
+        "upstream_version_dt": "2018-01-11 05:47 ET",
+        "archive": "mpc-<upstream_version>.tar.gz",
+        "branch_readme": "mpc-<upstream_version>.tar.gz.url"
+    },
+    {
+        "upstream_version": "3.1.6",
+        "upstream_version_dt": "2017-09-07 07:47 ET",
+        "archive": "mpcfr-<upstream_version>.tar.bz2"
+    }
+]

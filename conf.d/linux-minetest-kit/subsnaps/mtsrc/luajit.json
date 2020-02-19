@@ -1,0 +1,20 @@
+[
+    {
+        "upstream_repo": "https://github.com/LuaJIT/LuaJIT.git",
+        "upstream_version": "git",
+        "upstream_commit": "61464b0a5",
+        "upstream_version_dt": "2019-01-12 19:16 ET",
+        "archive": "luajit-git-61464b0a5.tar.bz2",
+        "branch_readme": "luajit.url",
+        "patch": "luajit.patch"
+    },
+    {
+        "upstream_repo": "https://github.com/LuaJIT/LuaJIT.git",
+        "upstream_version": "git",
+        "upstream_commit": "288219fd6",
+        "upstream_version_dt": "2019-01-12 20:42 ET",
+        "archive": "luasocket-git-288219fd6.tar.bz2",
+        "branch_readme": "luasocket.url",
+        "patch": "luasocket.patch"
+    }
+]

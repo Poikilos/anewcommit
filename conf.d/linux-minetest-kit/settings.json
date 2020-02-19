@@ -1,0 +1,10 @@
+{
+    "author_meta": {
+        "OldCoder": {
+            "github_email": "oldcoder@yahoo.com",
+            "github_user": "OldCoder",
+            "github_website": "http://oldcoder.org/"
+        }
+    },
+    "always_add_coauthors": ["OldCoder"]
+}

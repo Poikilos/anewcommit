@@ -1,0 +1,10 @@
+[
+    {
+        "upstream_repo": "https://github.com/ekg/leveldb-snappy.git",
+        "upstream_version": "git",
+        "upstream_commit": "02477c4",
+        "upstream_version_dt": "2019-01-20 01:03 ET",
+        "archive": "irrlicht-snappy.tar.bz2",
+        "branch_readme": "leveldb-snappy-origin.txt"
+    }
+]

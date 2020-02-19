@@ -1,0 +1,9 @@
+[
+    {
+        "upstream_repo": "https://github.com/CanonicalLtd/sqlite.git",
+        "upstream_version": "git",
+        "upstream_commit": "c94dbda1",
+        "upstream_version_date": "2018-09-03",
+        "archive": "sqlite3-180903.tar.bz2"
+    }
+]

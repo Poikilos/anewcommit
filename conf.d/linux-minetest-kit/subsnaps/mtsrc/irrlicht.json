@@ -1,0 +1,8 @@
+[
+    {
+        "upstream_repo": "https://github.com/zaki/irrlicht",
+        "upstream_version": "1.8.4",
+        "archive": "irrlicht-<upstream_version>.zip",
+        "patch": "irrlicht.patch"
+    }
+]

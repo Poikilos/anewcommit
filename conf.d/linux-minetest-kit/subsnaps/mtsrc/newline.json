@@ -1,0 +1,38 @@
+[
+    {
+        "archive": "amhi_game.zip",
+    },
+    {
+        "archive": "Bucket_City.tar.bz2",
+    },
+    {
+        "archive": "Bucket_Game.zip",
+    },
+    {
+        "archive": "cachemedia.tar.bz2",
+    },
+    {
+        "archive": "minetest-edgytest.tar.bz2",
+    },
+    {
+        "archive": "Moontest.tar.bz2",
+    },
+    {
+        "upstream_repo": "",
+        "upstream_version": "",
+        "upstream_commit": "",
+        "upstream_version_dt": "2019-11-30 16:44 ET",
+        "archive": "solib64.tar.bz2",
+        "ignore_subs": "solib64.tar.bz2"
+    },
+    {
+        "archive": "Wonder_World.tar.bz2",
+    },
+    {
+        "upstream_version": "",
+        "upstream_commit": "",
+        "upstream_version_dt": "",
+        "archive": "minetest-newline.tar.bz2",
+        "branch_readme": "gmp-<upstream_version>.tar.xz.url"
+    },
+]

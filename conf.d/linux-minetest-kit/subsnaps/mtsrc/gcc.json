@@ -1,0 +1,8 @@
+[
+    {
+        "upstream_repo": "",
+        "upstream_version": "svn-266001",
+        "archive": "gcc-<upstream_version>.tar.gz",
+        "patch": "gcc.patch"
+    }
+]
