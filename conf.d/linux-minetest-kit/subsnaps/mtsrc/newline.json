@@ -29,10 +29,6 @@
         "archive": "Wonder_World.tar.bz2"
     },
     {
-        "upstream_version": "",
-        "upstream_commit": "",
-        "upstream_version_dt": "",
-        "archive": "minetest-newline.tar.bz2",
-        "branch_readme": "gmp-<upstream_version>.tar.xz.url"
+        "archive": "minetest-newline.tar.bz2"
     }
 ]
