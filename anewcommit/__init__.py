@@ -12,6 +12,7 @@ def extract(src_file, new_parent_dir, auto_sub=True,
     Keyword arguments:
     auto_sub -- Automatically create a subdirectory
     """
+    raise NotImplementedError("There is nothing implemented here yet.")
 
 
 def main():
