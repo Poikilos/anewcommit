@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
-import gitify
+import anewcommit
 
-if True:
+def main():
     pass
+
+if __name__ == "__main__":
+    main()
