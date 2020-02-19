@@ -3,7 +3,7 @@
 import anewcommit
 
 def main():
-    pass
+    raise NotImplementedError("Only the config is implemented so far.")
 
 if __name__ == "__main__":
     main()
