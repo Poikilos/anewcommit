@@ -30,7 +30,7 @@ affect the entire snapshot process. For example:
             "full_name": "Robert Kiraly",
             "github_website": "http://oldcoder.org/"
         }
-    }
+    },
     "always_add_coauthors": ["OldCoder"]
 }
 ```
