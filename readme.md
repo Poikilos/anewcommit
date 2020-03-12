@@ -103,7 +103,13 @@ subproject. The "archive" option must be present. For example:
   Stop on ANewCommitError.
 - [ ] raise ANewCommitError on invalid JSON.
 - [ ] raise ANewCommitError on empty JSON string
-
+- [ ] automatically log when a subproject moves to a different part of
+  the project, is removed, or is added (say "re-added" if re-added).
+- Handle mod/modpack variables:
+  - [ ] `upstream_git_url`
+  - [ ] `upstream_git_subfolder`
+  - [ ] `downstream_git_url`
+  - [ ] `downstream_branch`
 
 ## Developer Notes
 ### Date formats

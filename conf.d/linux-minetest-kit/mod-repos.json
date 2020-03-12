@@ -1,6 +1,10 @@
 {
     "3d_armor": {
-        "git_url": "https://github.com/stujones11/minetest-3d_armor",
-        "git_subfolder": "3d_armor"
+        "upstream_git_url": "https://github.com/stujones11/minetest-3d_armor",
+        "upstream_git_subfolder": "3d_armor"
+    },
+    "tsm_pyramids": {
+        "downstream_git_url": "https://github.com/poikilos/tsm_pyramids",
+        "downstream_branch": "Bucket_Game"
     }
 }
