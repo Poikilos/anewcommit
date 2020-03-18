@@ -11,6 +11,7 @@ import sys
 # import re
 import os
 path = ""
+trues = ["true", "yes", "on", "1"]
 
 
 def get_between(haystack, starter, ender):
@@ -49,10 +50,12 @@ def get_between(haystack, starter, ender):
     }
 
 
-def lint_json(path):
+def lint_json(path, quiet_if_valid=False):
     try:
         with open(path) as json_file:
             data = json.load(json_file)
+            if not quiet_if_valid:
+                print("\"{}\" is valid JSON.".format(path))
     except json.decoder.JSONDecodeError as e:
         # str(e) is something like:
         # Expecting ',' delimiter: line 9 column 5 (char 207)
@@ -94,11 +97,55 @@ def lint_json(path):
         print("{}:{}:{}: {}".format(path, line, column, msg))
 
 
-t = "/home/owner/git/anewcommit/conf.d/linux-minetest-kit/settings.json"
-if len(sys.argv) < 2:
-    print("[check-json.py] You did not supply any arguments.")
-    if os.path.isfile(t):
-        lint_json(t)
+def to_bool(s):
+    if s is True:
+        return True
+    elif s is False:
+        return False
+    elif s == 0:
+        return False
+    elif s == 1:
+        return True
+    elif s.lower() in trues:
+        return True
+    return False
 
-for i in range(1, len(sys.argv)):
-    lint_json(sys.argv[i])
+
+def main():
+    settings = {}
+    if len(sys.argv) < 2:
+        print("[check-json.py] You did not supply any arguments.")
+    settings["quiet_if_valid"] = False
+    bools = ["quiet_if_valid"]
+    paths = []
+    name = None
+    for i in range(1, len(sys.argv)):
+        arg = sys.argv[i]
+        if arg.startswith("--"):
+            arg_s = arg[2:]  # skip "--"
+            sign_i = arg_s.find("=")
+            if sign_i == 0:
+                raise ValueError("There is an unexpected '=' at the start of an argument")
+            elif sign_i > 0:
+                name = arg_s[:sign_i]
+                v = arg_s[sign_i+1:]
+                if name in bools:
+                    v = to_bool(v)
+                settings[name] = v
+                name = None  # don't wait for a value in a following arg
+        else:
+            if name != None:
+                v = arg
+                if name in bools:
+                    v = to_bool(v)
+                settings[name] = v
+                name = None
+            else:
+                paths.append(arg)
+    # print("settings: " + str(settings))
+    for path in paths:
+        lint_json(path, quiet_if_valid=settings["quiet_if_valid"])
+
+
+if __name__ == "__main__":
+    main()
