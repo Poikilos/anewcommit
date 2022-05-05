@@ -1,5 +1,29 @@
 #!/usr/bin/env python
 
+import sys
+
+def error(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
+trues = ["on", "true", "yes", "1"]
+
+def is_truthy(v):
+    if v is None:
+        return False
+    elif v is True:
+        return True
+    elif v is False:
+        return False
+    elif isinstance(v, str):
+        if v_lower in trues:
+            return True
+    elif isinstance(v, int):
+        if v != 0:
+            return True
+    elif isinstance(v, float):
+        if v != 0:
+            return True
+    return False
 
 def extract(src_file, new_parent_dir, auto_sub=True,
             auto_sub_name=None):
@@ -93,6 +117,7 @@ class ANCProject:
     steps -- This is a list of actions to take, such as pre-processing
         or post-processing a version.
     '''
+    default_settings = {}
 
     def __init__(self):
         self.project_dir = None
@@ -141,5 +166,5 @@ def main():
 
 
 if __name__ == "__main__":
-    print("Import this module into your program to use it.")
+    error("Import this module into your program to use it.")
     main()

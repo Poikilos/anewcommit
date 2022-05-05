@@ -1,10 +1,25 @@
 #!/usr/bin/env python
+'''
+Open and organize multiple versions to prepare them to be added to
+version control. Either make the new folder replace (delete all then
+add) or merge with the previous version. Add transitions to ensure that
+commit diffs are clean, such as by adding a separate commit that
+renames folder(s) or file(s).
+
+Options:
+--verbose        Show more debug output.
+
+Examples:
+anewcommit .  # find versions in the current working directory.
+'''
+
 from __future__ import print_function
 import os
 import sys
 from decimal import Decimal
 import decimal
 import locale as lc
+import copy
 
 try:
     from tkinter import messagebox
@@ -32,12 +47,15 @@ if os.path.isfile(tryInit):
 import anewcommit
 from anewcommit import (
     ANCProject,
+    error,
+    is_truthy,
 )
 
 session = None
 playerIndex = 0
 
-def dict_to_widgets(d, parent):
+
+def dict_to_widgets(d, parent, options=None):
     '''
     Get a dict (results) where the key in results['widgets'][key] and
     in every other dict in the results dict is the corresponding key in
@@ -47,13 +65,25 @@ def dict_to_widgets(d, parent):
     Sequential arguments:
     d -- This dictionary defines the set of widgets to use.
     parent -- Set the frame that will contain the widget.
+    options -- This can either be None or a dict which contains lists,
+        where the key is a key in d. For example, if options['mode'] is
+        ['delete_then_add', 'overlay'] then the widget for d['mode']
+        will be a drop-down box with those two choices.
     '''
+    if options is None:
+        options = {}
+    if not hasattr(options, 'get'):
+        raise TypeError("options should be a dict.")
     results = {}
     results['widgets'] = {}
     results['vs'] = {}
-    for k, v in d:
+    for k, v in d.items():
         widget = None
-        if (v is None) or (isinstance(v, str)):
+        expected_v = v
+        try_v = options.get(k)
+        if k in options:
+            try_v = options[k]
+        if (expected_v is None) or (isinstance(expected_v, str)):
             if v is None:
                 v = ""
             results['vs'][k] = tk.StringVar()
@@ -63,7 +93,19 @@ def dict_to_widgets(d, parent):
                 textvariable=results['vs'][k],
                 # state="readonly",
             )
-        elif isinstance(v, bool):
+        elif isinstance(expected_v, list):
+            results['vs'][k] = tk.StringVar()
+            if v is None:
+                v = ""
+            widget = ttk.OptionMenu(
+                parent,
+                results['vs'][k],
+                expected_v[0],
+                *expected_v,
+                # command=option_changed,
+            )
+
+        elif isinstance(expected_v, bool):
             results['vs'][k] = tk.IntVar()
             widget = ttk.Checkbutton(
                 parent,
@@ -83,13 +125,35 @@ def dict_to_widgets(d, parent):
     return results
 
 
+last_luid = -1
+
+def gen_luid():
+    global last_luid
+    last_luid += 1
+    return str(last_luid)
+
+verbose = False
+
 class MainFrame(ttk.Frame):
     '''
+
+    Requires:
+    global verbose (usually False)
+    anewcommit
 
     Private Properties:
     _project -- This is the currently loaded ANCProject instance.
     '''
-    def __init__(self, parent):
+    def __init__(self, parent, settings=None):
+        all_settings = copy.deepcopy(ANCProject.default_settings)
+        if settings is not None:
+            # if is_truthy(settings.get('verbose')):
+            #     # self.settings['verbose'] = True
+            #     verbose = True
+            for k, v in settings.items():
+                all_settings[k] = v
+        self.settings = all_settings
+
         self._project = None
         self.parent = parent
         ttk.Frame.__init__(self, parent, style='MainFrame.TFrame')
@@ -146,6 +210,23 @@ class MainFrame(ttk.Frame):
                 "The action must be: {}"
                 "".format(anewcommit.ACTIONS)
             )
+        frame = tk.Frame(self)
+        button = ttk.Button(
+            frame,
+            text="+",
+            width=2,
+            command=lambda: self.add_before(path),
+        )
+        # button.grid(column=1, row=row, sticky=tk.W)
+        button.pack(side=tk.LEFT, padx=(10, 0))
+
+        options = {}
+        options['action'] = anewcommit.ACTIONS
+        results = dict_to_widgets(step, frame, options=options)
+        for name, widget in results['widgets'].items():
+            widget.pack(side=tk.LEFT)
+            var = results['vs'][name]
+        frame.pack(fill=tk.X)
 
     def _add_version_row(self, step):
         '''
@@ -168,15 +249,19 @@ class MainFrame(ttk.Frame):
         row = self.rows
         path = step.get('path')
         name = os.path.split(path)[1]
-        frame = tk.Frame()
+        frame = tk.Frame(self)
         # label = ttk.Label(frame, text=name)
         # label.grid(column=0, row=row, sticky=tk.E)
         if path in self.text_vars:
             raise ValueError("The path already exists: {}"
                              "".format(path))
         self.text_vars[path] = tk.StringVar()
-        button = ttk.Button(frame, text="+",
-                            command=lambda: self.add_before(path))
+        button = ttk.Button(
+            frame,
+            text="+",
+            width=2,
+            command=lambda: self.add_before(path),
+        )
         # button.grid(column=1, row=row, sticky=tk.W)
         button.pack(side=tk.LEFT, padx=(10, 0))
         # remainingW = 1
@@ -216,7 +301,7 @@ class MainFrame(ttk.Frame):
         self.rows += 1
 
     def add_before(self, path):
-        print("NotYetImplemented: add_before('{}')".format(path))
+        error("NotYetImplemented: add_before('{}')".format(path))
 
     def add_transition_and_source(self, path):
         transition_step = self._project.add_transition('no_op')
@@ -225,10 +310,14 @@ class MainFrame(ttk.Frame):
             version_step = self._project.add_version(path)
             try:
                 self._add_version_row(version_step)
-            except ValueError as ex2:
+            except (ValueError, TypeError) as ex2:
+                if verbose:
+                    raise ex2
                 messagebox.showerror("Error", str(ex2))
                 return False
-        except ValueError as ex:
+        except (ValueError, TypeError) as ex:
+            if verbose:
+                raise ex
             messagebox.showerror("Error", str(ex))
             return False
         return True
@@ -246,10 +335,14 @@ class MainFrame(ttk.Frame):
             if not result:
                 break
             count += 1
-        print("Added {}".format(count))
+        error("Added {}".format(count))
 
     def exitProgram(self):
         root.destroy()
+
+
+def usage():
+    error(__doc__)
 
 
 def main():
@@ -261,17 +354,54 @@ def main():
     root.geometry("1000x600")
     root.minsize(600, 400)
     root.title("anewcommit")
-    app = MainFrame(root)
-    if len(sys.argv) > 1:
+    versions_path = None
+    bool_names = ['--verbose']
+    settings = {}
+    for argi in range(1, len(sys.argv)):
+        arg = sys.argv[argi]
+        if arg.startswith("--"):
+            option_name = arg[2:]
+            if arg in bool_names:
+                settings[option_name] = True
+            else:
+                usage()
+                raise ValueError("{} is not a valid argument."
+                                 "".format(arg))
+        else:
+            if versions_path is None:
+                versions_path = arg
+            else:
+                usage()
+                raise ValueError("There was an extra argument: {}"
+                                 "".format(arg))
+    global verbose
+    if is_truthy(settings.get('verbose')):
+        verbose = True
+        error("* enabled verbose logging to standard error")
+    style = ttk.Style(root)
+    preferred_themes = ['winnative', 'aqua', 'alt']
+    # aqua: Darwin
+    # alt: Use checkboxes not shading for Checkbutton such as on KDE.
+    for prefer_theme in preferred_themes:
+        if prefer_theme in style.theme_names():
+            style.theme_use(prefer_theme)
+            break
+    if verbose:
+        error("* available ttk themes: {}".format(style.theme_names()))
+        error("* current theme: {}".format(style.theme_use()))
+
+    app = MainFrame(root, settings=settings)
+    if versions_path is not None:
         app.add_versions_in(sys.argv[1])
+
     root.mainloop()
     # (Urban & Murach, 2016, p. 515)
     '''
     session.stop()
     if session.save():
-        print("Save completed.")
+        error("Save completed.")
     else:
-        print("Save failed.")
+        error("Save failed.")
     '''
 
 

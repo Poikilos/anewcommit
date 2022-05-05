@@ -19,6 +19,7 @@ ARGS_BOOL = []
 def error(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
+# ^ also defined in the anewcommit module
 
 def push_times(fileInfo, subPath):
     # fileInfo = results[path]
