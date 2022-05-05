@@ -63,6 +63,7 @@ setuptools.setup(
     entry_points={
         'console_scripts': [
             'duminus=anewcommit.duminus:main',
+            'anewcommit=anewcommit.gui_tkinter:main',
         ],
     },
     install_requires=install_requires,

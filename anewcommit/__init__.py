@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 
 def extract(src_file, new_parent_dir, auto_sub=True,
@@ -20,6 +20,120 @@ def extract(src_file, new_parent_dir, auto_sub=True,
         created directory to the value of this string.
     """
     raise NotImplementedError("There is nothing implemented here yet.")
+
+
+MODES = [
+    'delete_then_add',
+    'overlay',
+]
+
+
+def new_version(path, mode='delete_then_add'):
+    if mode not in MODES:
+        raise ValueError("Mode must be one of: {}".format(MODES))
+    return {
+        'path': path,
+        'mode': mode,
+        'action': 'get_version',
+        'commit': True,
+    }
+
+
+ACTIONS = [
+    'pre_process',
+    'post_process',
+    'no_op',
+]
+
+# The special action is get_version, and is added via add_version.
+
+ACTIONS_HELP = {
+    'pre_process': 'Make changes to the next version before a commit.',
+    'post_process': 'Make changes to the previous version.',
+    'no_op': 'Do not modify the previous version.',
+}
+
+
+def _new_process():
+    return {
+        'action': 'no_op',
+        'commit': False,  # Change this to True if action changes.
+    }
+
+
+def new_pre_process():
+    '''
+    A pre-process action affects the next version in the list of steps.
+    '''
+    step = _new_process()
+    step['action'] = 'pre_process'
+    step['commit'] = True
+    return step
+
+
+def new_post_process():
+    '''
+    A post-process action affects the previous version in the list of
+    steps. For example, renaming directories or files as a separate
+    commit may make committing the next version more clean.
+    '''
+    step = _new_process()
+    step['action'] = 'post_process'
+    step['commit'] = True
+    return step
+
+
+class ANCProject:
+    '''
+    Manage a list of version directories.
+
+    Public Properties:
+    project_dir -- The metadata for the various version directories will
+        be stored here.
+    steps -- This is a list of actions to take, such as pre-processing
+        or post-processing a version.
+    '''
+
+    def __init__(self):
+        self.project_dir = None
+        self.steps = []
+
+    def add_transition(self, action):
+        '''
+        Sequential arguments:
+        action -- Set operation string from the OPS table to decide what
+            to do between versions.
+        '''
+        step = None
+        if action == "pre_process":
+            step = new_pre_process()
+        elif action == "post_process":
+            step = new_post_process()
+        elif action == "no_op":
+            step = _new_process()
+        else:
+            raise ValueError(
+                "The action is unknown: {}"
+                "".format(action)
+            )
+        self.steps.append(step)
+        return step
+
+    def add_version(self, path, mode='delete_then_add'):
+        '''
+        Sequential arguments:
+        path -- This is a path to a version.
+        '''
+        step = new_version(path, mode=mode)
+        # ^ new_version raises ValueError if the mode is invalid.
+        self.steps.append(step)
+        return step
+
+    def to_dict(self):
+        return {
+            'project_dir': self.project_dir,
+            'steps': self.steps,
+        }
 
 
 def main():
