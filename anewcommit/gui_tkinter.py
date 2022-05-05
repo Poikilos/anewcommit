@@ -14,6 +14,9 @@ anewcommit .  # find versions in the current working directory.
 '''
 
 from __future__ import print_function
+__metaclass__ = type
+# ^ Fix <https://stackoverflow.com/questions/1713038/super-fails-with-
+#   error-typeerror-argument-1-must-be-type-not-classobj-when>
 import os
 import sys
 from decimal import Decimal
@@ -26,12 +29,14 @@ try:
     from tkinter import filedialog
     import tkinter as tk
     from tkinter import ttk
+    # from tkinter import tix
 except ImportError:
     # Python 2
     import tkMessageBox as messagebox
     import tkFileDialog as filedialog
     import Tkinter as tk
     import ttk
+    # import Tix as tix
 
 import math
 
@@ -102,9 +107,10 @@ def dict_to_widgets(d, parent, options=None):
                 parent,
                 results['vs'][k],
                 expected_v[0],
-                *expected_v,
-                # command=option_changed,
+                *expected_v
             )
+            # ^ Comma can't be after *x in python2.
+            # command=option_changed,
             results['vs'][k].set(v)
         elif isinstance(expected_v, bool):
             results['vs'][k] = tk.IntVar()
@@ -164,8 +170,14 @@ class MainFrame(ttk.Frame):
         self._project = None
         self.parent = parent
         ttk.Frame.__init__(self, parent, style='MainFrame.TFrame')
+        # tix.ScrolledWindow.__init__(self, parent)
+        # ^ _tkinter.TclError: invalid command name "tixScrolledWindow"
+        #   if inherits from tix.ScrolledWindow (Python 2 or 3)
+        # super(MainFrame, self).__init__(parent)
+        # List of tk style templates:
+        #     <https://www.pythontutorial.net/tkinter/ttk-style/>
         self.style = ttk.Style(self)
-        # self.style.configure('MainFrame.TFrame', background='gray')
+        self.style.configure('MainFrame.TFrame', background='gray')
         # ^ See <https://www.pythontutorial.net/tkinter/ttk-style/>.
         #   The following didn't work:
         #   See <http://infohost.nmt.edu/tcc/help/pubs/tkinter/web/
@@ -382,6 +394,8 @@ def main():
     preferred_themes = ['winnative', 'aqua', 'alt']
     # aqua: Darwin
     # alt: Use checkboxes not shading for Checkbutton such as on KDE.
+    # list of styles (included and available elsewhere):
+    #     <https://wiki.tcl-lang.org/page/List+of+ttk+Themes>
     for prefer_theme in preferred_themes:
         if prefer_theme in style.theme_names():
             style.theme_use(prefer_theme)
