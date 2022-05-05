@@ -130,13 +130,24 @@ verbose = False
 
 class MainFrame(ttk.Frame):
     '''
+    MainFrame loads, generates, or edits an anewcommit project.
 
     Requires:
-    global verbose (usually False)
-    anewcommit
+    - global verbose (usually False)
+    - See imports for more.
 
-    Private Properties:
+    Private Attributes:
     _project -- This is the currently loaded ANCProject instance.
+    _frame_of_luid -- _frame_of_luid[luid] is the row, in the form of a
+        frame, that represents the action (version or transition)
+        uniquely identified by a luid.
+    _id_of_path -- _id_of_path[path] is the luid of the path. The path
+        must appear only one time in the project (Theoretically it
+        could appear more than once but either the commit would be a
+        reversion or there would have to be some other operation that
+        modifies it before a commit).
+    _vars_of_luid -- _vars_of_luid[luid][key] is the widget of
+        the step key for the step uniquely identified by luid.
     '''
     def __init__(self, parent, settings=None):
         all_settings = copy.deepcopy(ANCProject.default_settings)
@@ -147,6 +158,8 @@ class MainFrame(ttk.Frame):
             for k, v in settings.items():
                 all_settings[k] = v
         self.settings = all_settings
+        self.headings = []
+        self.heading_captions = {}
 
         self._project = None
         self.parent = parent
@@ -159,9 +172,9 @@ class MainFrame(ttk.Frame):
         #   ttk-style-layer.html>
         #   via <https://stackoverflow.com/a/16639454>
 
-        self.id_of_path = {}
-        self.vars_of_luid = {}
-        self.frame_of_luid = {}
+        self._id_of_path = {}
+        self._vars_of_luid = {}
+        self._frame_of_luid = {}
         menu = tk.Menu(self.parent)
         self.menu = menu
         self.parent.config(menu=menu)
@@ -208,8 +221,8 @@ class MainFrame(ttk.Frame):
             )
         frame = tk.Frame(self)
         luid = step['luid']
-        self.frame_of_luid[luid] = frame
-        self.vars_of_luid[luid] = {}
+        self._frame_of_luid[luid] = frame
+        self._vars_of_luid[luid] = {}
         button = ttk.Button(
             frame,
             text="+",
@@ -225,7 +238,7 @@ class MainFrame(ttk.Frame):
         for name, widget in results['widgets'].items():
             widget.pack(side=tk.LEFT)
             var = results['vs'][name]
-            self.vars_of_luid[luid][name] = var
+            self._vars_of_luid[luid][name] = var
         frame.pack(fill=tk.X)
 
     def _add_version_row(self, step):
@@ -252,13 +265,13 @@ class MainFrame(ttk.Frame):
         frame = tk.Frame(self)
         # label = ttk.Label(frame, text=name)
         # label.grid(column=0, row=row, sticky=tk.E)
-        if path in self.id_of_path:
+        if path in self._id_of_path:
             raise ValueError("The path already exists: {}"
                              "".format(path))
         luid = step['luid']
-        self.frame_of_luid[luid] = frame
-        self.vars_of_luid[luid] = {}
-        self.id_of_path[path] = luid
+        self._frame_of_luid[luid] = frame
+        self._vars_of_luid[luid] = {}
+        self._id_of_path[path] = luid
         button = ttk.Button(
             frame,
             text="+",
@@ -282,7 +295,7 @@ class MainFrame(ttk.Frame):
             # widget.place(relx=relx, relwidth=relwidth, anchor=tk.W, relheight=.5, in_=frame)
             # relx += relwidth
             var = results['vs'][name]
-            self.vars_of_luid[luid][name] = var
+            self._vars_of_luid[luid][name] = var
         frame.pack(fill=tk.X)
         # expand=True: makes the row taller so rows fill the window
         self.rows += 1
