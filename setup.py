@@ -34,7 +34,7 @@ description = '''Compare, reorder, and commit a series of source
 snapshots (where each may also contain snapshots of subprojects).'''
 
 setuptools.setup(
-    name='linuxpreinstall',
+    name='anewcommit',
     version='0.3.0',
     description=description,
     long_description=long_description,
