@@ -51,16 +51,49 @@ MODES = [
     'overlay',
 ]
 
+last_luid = -1
 
-def new_version(path, mode='delete_then_add'):
+
+def gen_luid():
+    global last_luid
+    last_luid += 1
+    return str(last_luid)
+
+
+def _new_process(luid=None):
+    '''
+    Keyword arguments:
+    luid -- If None, generate a LUID (a locally-unique ID). The value
+        must be a node ID that is unique within the scope of the
+        project file, for any use such as by gui component dictionaries.
+        There is one luid for each step, so there may be multiple
+        named widgets in the group. If a unique id is necessary for
+        every widget in your widget system, you can use `luid + "." +
+        key` for the key where key is the key in the step dictionary.
+    '''
+    if luid is None:
+        luid = gen_luid()
+    return {
+        'luid': luid,
+        'action': 'no_op',
+        'commit': False,  # Change this to True if action changes.
+    }
+
+
+def new_version(path, mode='delete_then_add', luid=None):
+    '''
+    Keyword arguments:
+    luid -- If None, generate a LUID. See _new_process for more info.
+    '''
+    step = _new_process(luid=luid)
     if mode not in MODES:
         raise ValueError("Mode must be one of: {}".format(MODES))
-    return {
-        'path': path,
-        'mode': mode,
-        'action': 'get_version',
-        'commit': True,
-    }
+
+    step['path'] = path
+    step['mode'] = mode  # The mode only applies to 'get_version'.
+    step['action'] = 'get_version'
+    step['commit'] = True
+    return step
 
 
 ACTIONS = [
@@ -78,28 +111,29 @@ ACTIONS_HELP = {
 }
 
 
-def _new_process():
-    return {
-        'action': 'no_op',
-        'commit': False,  # Change this to True if action changes.
-    }
-
-
-def new_pre_process():
+def new_pre_process(luid=None):
     '''
     A pre-process action affects the next version in the list of steps.
+
+    Keyword arguments:
+    luid -- If None, generate a LUID. See _new_process for more info.
     '''
     step = _new_process()
     step['action'] = 'pre_process'
     step['commit'] = True
+    if luid is None:
+        luid = gen_luid()
     return step
 
 
-def new_post_process():
+def new_post_process(luid=None):
     '''
     A post-process action affects the previous version in the list of
     steps. For example, renaming directories or files as a separate
     commit may make committing the next version more clean.
+
+    Keyword arguments:
+    luid -- If None, generate a LUID. See _new_process for more info.
     '''
     step = _new_process()
     step['action'] = 'post_process'

@@ -93,6 +93,7 @@ def dict_to_widgets(d, parent, options=None):
                 textvariable=results['vs'][k],
                 # state="readonly",
             )
+            results['vs'][k].set(v)
         elif isinstance(expected_v, list):
             results['vs'][k] = tk.StringVar()
             if v is None:
@@ -104,7 +105,7 @@ def dict_to_widgets(d, parent, options=None):
                 *expected_v,
                 # command=option_changed,
             )
-
+            results['vs'][k].set(v)
         elif isinstance(expected_v, bool):
             results['vs'][k] = tk.IntVar()
             widget = ttk.Checkbutton(
@@ -124,13 +125,6 @@ def dict_to_widgets(d, parent, options=None):
 
     return results
 
-
-last_luid = -1
-
-def gen_luid():
-    global last_luid
-    last_luid += 1
-    return str(last_luid)
 
 verbose = False
 
@@ -165,7 +159,9 @@ class MainFrame(ttk.Frame):
         #   ttk-style-layer.html>
         #   via <https://stackoverflow.com/a/16639454>
 
-        self.text_vars = {}
+        self.id_of_path = {}
+        self.vars_of_luid = {}
+        self.frame_of_luid = {}
         menu = tk.Menu(self.parent)
         self.menu = menu
         self.parent.config(menu=menu)
@@ -211,11 +207,14 @@ class MainFrame(ttk.Frame):
                 "".format(anewcommit.ACTIONS)
             )
         frame = tk.Frame(self)
+        luid = step['luid']
+        self.frame_of_luid[luid] = frame
+        self.vars_of_luid[luid] = {}
         button = ttk.Button(
             frame,
             text="+",
             width=2,
-            command=lambda: self.add_before(path),
+            command=lambda: self.add_before(luid),
         )
         # button.grid(column=1, row=row, sticky=tk.W)
         button.pack(side=tk.LEFT, padx=(10, 0))
@@ -226,6 +225,7 @@ class MainFrame(ttk.Frame):
         for name, widget in results['widgets'].items():
             widget.pack(side=tk.LEFT)
             var = results['vs'][name]
+            self.vars_of_luid[luid][name] = var
         frame.pack(fill=tk.X)
 
     def _add_version_row(self, step):
@@ -252,50 +252,37 @@ class MainFrame(ttk.Frame):
         frame = tk.Frame(self)
         # label = ttk.Label(frame, text=name)
         # label.grid(column=0, row=row, sticky=tk.E)
-        if path in self.text_vars:
+        if path in self.id_of_path:
             raise ValueError("The path already exists: {}"
                              "".format(path))
-        self.text_vars[path] = tk.StringVar()
+        luid = step['luid']
+        self.frame_of_luid[luid] = frame
+        self.vars_of_luid[luid] = {}
+        self.id_of_path[path] = luid
         button = ttk.Button(
             frame,
             text="+",
             width=2,
-            command=lambda: self.add_before(path),
+            command=lambda: self.add_before(luid),
         )
         # button.grid(column=1, row=row, sticky=tk.W)
         button.pack(side=tk.LEFT, padx=(10, 0))
         # remainingW = 1
         # relx = 0
         # relwidth = .5
-        # button.pack()
-        # button.place(relx=relx, relwidth=relwidth)  # anchor=tk.NE
+        # button.place(relx=relx, relwidth=relwidth, in_=frame, anchor=tk.W, relheight=1.0)
         # relx += relwidth
         # remainingW -= relwidth
 
-        entry = ttk.Entry(
-            frame,
-            # width=25,
-            textvariable=self.text_vars[path],
-            # state="readonly",
-        )
-        # entry.grid(column=2, columnspan=2, row=row, sticky=tk.W)'
-        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 10))
-        # anchor=tk.N: Doesn't help.
-        # relwidth = remainingW
-        # entry.pack()
-        # entry.place(relx=relx, y=0, relwidth=relwidth)
-        # ^ side: The side tk packs against, TOP by default
-
-        self.text_vars[path].set(name)
-        '''
-        entry = ttk.Entry(frame, width=self.wide_width,
-                          textvariable=self.text_vars[path],
-                          state="readonly")
-        entry.grid(column=1, columnspan=3, row=row, sticky=tk.W)
-        '''
-        # for child in self.winfo_children():
-        #     child.grid_configure(padx=6, pady=3)
-        # (Urban & Murach, 2016, p. 515)
+        options = {}
+        options['mode'] = anewcommit.MODES
+        results = dict_to_widgets(step, frame, options=options)
+        for name, widget in results['widgets'].items():
+            widget.pack(side=tk.LEFT)
+            # widget.place(relx=relx, relwidth=relwidth, anchor=tk.W, relheight=.5, in_=frame)
+            # relx += relwidth
+            var = results['vs'][name]
+            self.vars_of_luid[luid][name] = var
         frame.pack(fill=tk.X)
         # expand=True: makes the row taller so rows fill the window
         self.rows += 1
