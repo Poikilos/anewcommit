@@ -37,20 +37,51 @@ from anewcommit import (
 session = None
 playerIndex = 0
 
-'''
-copypasta:
-        self.bet_entry['state'] = tk.NORMAL
-        self.stand_button['state'] = tk.DISABLED  # (Cagle, 2007)
-        ttk.Label(self, text="Money:").grid(column=0, row=row, sticky=tk.E)
-        ttk.Entry(self, width=25, textvariable=self.balance,
-                  state="readonly").grid(column=1, columnspan=3,
-                                         row=row, sticky=tk.W)
-        self.stand_button['state'] = tk.DISABLED  # (Cagle, 2007)
-        self.hit_button['state'] = tk.DISABLED  # (Cagle, 2007)
-        for child in self.winfo_children():
-            child.grid_configure(padx=6, pady=3)
-        # (Urban & Murach, 2016, p. 515)
-'''
+def dict_to_widgets(d, parent):
+    '''
+    Get a dict (results) where the key in results['widgets'][key] and
+    in every other dict in the results dict is the corresponding key in
+    dictionary d. The widgets will not be packed. The results also
+    contains results['vs'] which has StringVar instances.
+
+    Sequential arguments:
+    d -- This dictionary defines the set of widgets to use.
+    parent -- Set the frame that will contain the widget.
+    '''
+    results = {}
+    results['widgets'] = {}
+    results['vs'] = {}
+    for k, v in d:
+        widget = None
+        if (v is None) or (isinstance(v, str)):
+            if v is None:
+                v = ""
+            results['vs'][k] = tk.StringVar()
+            widget = ttk.Entry(
+                parent,
+                # width=25,
+                textvariable=results['vs'][k],
+                # state="readonly",
+            )
+        elif isinstance(v, bool):
+            results['vs'][k] = tk.IntVar()
+            widget = ttk.Checkbutton(
+                parent,
+                text=k,
+                variable=results['vs'][k],
+                onvalue=1,
+                offvalue=0,
+            )
+            # indicatoron: If False, you must set your own visual
+            #     instead of a check mark in the box.
+            results['vs'][k].set(1)
+        else:
+            raise ValueError("A widget for {} is not implemented."
+                             "".format(type(v).__name__))
+        results['widgets'][k] = widget
+
+    return results
+
 
 class MainFrame(ttk.Frame):
     '''
@@ -61,18 +92,29 @@ class MainFrame(ttk.Frame):
     def __init__(self, parent):
         self._project = None
         self.parent = parent
-        ttk.Frame.__init__(self, parent)
+        ttk.Frame.__init__(self, parent, style='MainFrame.TFrame')
+        self.style = ttk.Style(self)
+        # self.style.configure('MainFrame.TFrame', background='gray')
+        # ^ See <https://www.pythontutorial.net/tkinter/ttk-style/>.
+        #   The following didn't work:
+        #   See <http://infohost.nmt.edu/tcc/help/pubs/tkinter/web/
+        #   ttk-style-layer.html>
+        #   via <https://stackoverflow.com/a/16639454>
+
         self.text_vars = {}
         menu = tk.Menu(self.parent)
         self.menu = menu
         self.parent.config(menu=menu)
+        self.next_id = 0
+        self.panels = []
 
-        fileMenu = tk.Menu(menu)
+        fileMenu = tk.Menu(menu, tearoff=0)
         fileMenu.add_command(label="Open", command=self.ask_open)
         fileMenu.add_command(label="Exit", command=self.exitProgram)
         menu.add_cascade(label="File", menu=fileMenu)
 
         self.pack(fill=tk.BOTH, expand=True)
+        # Doesn't work: padx=(10, 10), pady=(10, 10),
         self.rows = 0
 
         self.wide_width = 30
@@ -105,7 +147,6 @@ class MainFrame(ttk.Frame):
                 "".format(anewcommit.ACTIONS)
             )
 
-
     def _add_version_row(self, step):
         '''
         Sequential arguments:
@@ -127,33 +168,51 @@ class MainFrame(ttk.Frame):
         row = self.rows
         path = step.get('path')
         name = os.path.split(path)[1]
-        # label = ttk.Label(self, text=name)
+        frame = tk.Frame()
+        # label = ttk.Label(frame, text=name)
         # label.grid(column=0, row=row, sticky=tk.E)
         if path in self.text_vars:
             raise ValueError("The path already exists: {}"
                              "".format(path))
         self.text_vars[path] = tk.StringVar()
+        button = ttk.Button(frame, text="+",
+                            command=lambda: self.add_before(path))
+        # button.grid(column=1, row=row, sticky=tk.W)
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        # remainingW = 1
+        # relx = 0
+        # relwidth = .5
+        # button.pack()
+        # button.place(relx=relx, relwidth=relwidth)  # anchor=tk.NE
+        # relx += relwidth
+        # remainingW -= relwidth
+
         entry = ttk.Entry(
-            self,
-            width=25,
+            frame,
+            # width=25,
             textvariable=self.text_vars[path],
             # state="readonly",
         )
+        # entry.grid(column=2, columnspan=2, row=row, sticky=tk.W)'
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 10))
+        # anchor=tk.N: Doesn't help.
+        # relwidth = remainingW
+        # entry.pack()
+        # entry.place(relx=relx, y=0, relwidth=relwidth)
+        # ^ side: The side tk packs against, TOP by default
+
         self.text_vars[path].set(name)
-        entry.grid(column=2, columnspan=2, row=row, sticky=tk.W)
         '''
-        entry = ttk.Entry(self, width=self.wide_width,
+        entry = ttk.Entry(frame, width=self.wide_width,
                           textvariable=self.text_vars[path],
                           state="readonly")
         entry.grid(column=1, columnspan=3, row=row, sticky=tk.W)
         '''
-        button = ttk.Button(self, text="+",
-                            command=lambda: self.add_before(path))
-        button.grid(column=1, row=row, sticky=tk.W)
         # for child in self.winfo_children():
         #     child.grid_configure(padx=6, pady=3)
         # (Urban & Murach, 2016, p. 515)
-
+        frame.pack(fill=tk.X)
+        # expand=True: makes the row taller so rows fill the window
         self.rows += 1
 
     def add_before(self, path):
@@ -199,7 +258,8 @@ def main():
 
     global root
     root = tk.Tk()
-    root.geometry("1000x700")
+    root.geometry("1000x600")
+    root.minsize(600, 400)
     root.title("anewcommit")
     app = MainFrame(root)
     if len(sys.argv) > 1:
