@@ -118,5 +118,36 @@ Python example:
 
 ```
 
+### Dates from git
+Git only stores dates of commits unless using 3rd-party tools to add
+metadata. The following solutions "Restore all dates" and "Get
+individual dates" are usable separately from each other and use commit
+dates. Only modification times are stored in GNU+Linux systems
+(usually) so these methods only affect "mtime". Neither of the methods
+change the directory modification dates.
 
+#### Restore all dates
+as per <https://stackoverflow.com/a/13284229>:
+- First install the package (run only the line for your distro):
+```
+sudo apt install git-restore-mtime  # Debian, Ubuntu, and Linux Mint
+yum install git-tools               # Fedora, Red Hat Enterprise Linux (RHEL), and CentOS
+emerge dev-vcs/git-tools            # Gentoo Linux
+```
+- Install the tool:
+```
+mkdir -p ~/.local/lib
+git clone https://github.com/MestreLion/git-tools.git ~/.local/lib/git-tools
+echo 'PATH=$PATH:~/.local/lib/git-tools' >> ~/.profile
+source ~/.profile  # or restart the terminal session
+```
+- Use the tool: In a terminal, cd to the repo then:
+  `git restore-mtime`
+
+#### Get individual dates
+as per
+<https://stackoverflow.com/questions/21735435/git-clone-changes-file-modification-time>:
+```
+git log -n1 -- file
+```
 
