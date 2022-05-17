@@ -73,7 +73,7 @@ for mode in anewcommit.MODES:
 
 WIDGET_TYPES = ["Checkbutton", "OptionMenu", "Entry", "Label"]
 
-main_field_order = ['commit', 'name', 'mode']
+main_field_order = ['commit', 'name', 'action', 'mode']
 
 conditional_formatting = {
     'action': {
@@ -145,6 +145,8 @@ def dict_to_widgets(d, parent, template=None):
         platform-independent way. If the field isn't described, its type
         will determine its UI (such as Entry box for str and Checkbutton
         for bool).
+        - If a field in field_order isn't a key in d, add a blank
+          label and show a warning.
     '''
     if template is None:
         template = {}
@@ -155,23 +157,50 @@ def dict_to_widgets(d, parent, template=None):
     elif not hasattr(template['fields'], 'get'):
         raise TypeError("template['fields'] should be a dict.")
     fields = template['fields']
+    '''
+    if fields is None:
+        fields_done = [False for key in field_order]
+    '''
+    field_order = template.get('field_order')
+    all_done = {}
+    for key in d.keys():
+        all_done[key] = False
+    fields_done = all_done
+    if field_order is None:
+        field_order = d.keys()
+        fields_done = {}
+        for key in field_order:
+            fields_done[key] = False
 
     results = {}
     results['widgets'] = {}
     results['vs'] = {}
-    for k, v in d.items():
-        field = fields.get(k)
-        if field is None:
-            field = {}
+    # for k, v in d.items():
+    for k in field_order:
+        widget_type = None
+        if k not in d:
+            error(
+                "Warning: The key '{}' is missing but is in field_order"
+                " (step={})."
+                "".format(k, d)
+            )
+            v = ""
+            widget_type = "Label"
+        else:
+            v = d[k]
+        spec = fields.get(k)
+        if spec is None:
+            spec = {}
         widget = None
         expected_v = v
-        widget_type = field.get('widget')
+        if widget_type is None:
+            widget_type = spec.get('widget')
         default_v = None
-        if 'default' in field:
-            expected_v = field['default']
-            default_v = field['default']
-        if 'values' in field:
-            expected_v = field['values']
+        if 'default' in spec:
+            expected_v = spec['default']
+            default_v = spec['default']
+        if 'values' in spec:
+            expected_v = spec['values']
             # ^ It must be a list (See OptionMenu case below).
             if widget_type is None:
                 widget_type = 'OptionMenu'

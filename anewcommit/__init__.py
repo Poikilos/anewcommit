@@ -2,6 +2,7 @@
 from __future__ import print_function
 
 import sys
+import os
 
 verbose = False
 for argI in range(1, len(sys.argv)):
@@ -116,10 +117,12 @@ def _new_process(luid=None):
     }
 
 
-def new_version(path, mode='delete_then_add', luid=None):
+def new_version(path, mode='delete_then_add', luid=None, name=None):
     '''
     Keyword arguments:
     luid -- If None, generate a LUID. See _new_process for more info.
+    name -- Tag the subversion. If None, name is set to the leaf of the
+        path.
     '''
     step = _new_process(luid=luid)
     if mode not in MODES:
@@ -129,6 +132,10 @@ def new_version(path, mode='delete_then_add', luid=None):
     step['mode'] = mode  # The mode only applies to 'get_version'.
     step['action'] = 'get_version'
     step['commit'] = True
+    if name is None:
+        step['name'] = os.path.split(path)[1]
+    else:
+        step['name'] = name
     return step
 
 
