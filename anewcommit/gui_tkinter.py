@@ -54,13 +54,84 @@ from anewcommit import (
     ANCProject,
     error,
     is_truthy,
+    debug,
+    get_verbose,
 )
 
 session = None
 playerIndex = 0
 
+action_width = 1
+for action in anewcommit.ACTIONS:
+    if len(action) > action_width:
+        action_width = len(action)
 
-def dict_to_widgets(d, parent, options=None):
+mode_width = 1
+for mode in anewcommit.MODES:
+    if len(mode) > mode_width:
+        mode_width = len(mode)
+
+WIDGET_TYPES = ["Checkbutton", "OptionMenu", "Entry", "Label"]
+
+main_field_order = ['commit', 'name', 'mode']
+
+conditional_formatting = {
+    'action': {
+        '=get_version': {
+            'readonly': True,
+        },
+    },
+}
+# TODO: (?) Implement conditional_formatting (not necessary if using
+# separate version_template_fields below).
+
+_version_template_fields = {
+    'luid': {
+        'hide': True,
+    },
+    'path': {
+        'hide': True,
+    },
+    'action': {
+        'maxchars': action_width,
+        'widget': "Label",
+    },
+    'mode': {
+        'maxchars': mode_width,
+        'values': anewcommit.MODES,
+    },
+    'commit': {
+        'caption': '',
+    },
+}
+
+_transition_template_fields = {
+    'luid': {
+        'hide': True,
+    },
+    'path': {
+        'hide': True,
+    },
+    'action': {
+        'maxchars': action_width,
+        'values': anewcommit.ACTIONS,
+    },
+    'commit': {
+        'caption': '',
+    },
+}
+transition_template = {
+    'fields': _transition_template_fields,
+    'field_order': main_field_order,
+}
+
+version_template = {
+    'fields': _version_template_fields,
+    'field_order': main_field_order,
+}
+
+
+def dict_to_widgets(d, parent, template=None):
     '''
     Get a dict (results) where the key in results['widgets'][key] and
     in every other dict in the results dict is the corresponding key in
@@ -70,25 +141,58 @@ def dict_to_widgets(d, parent, options=None):
     Sequential arguments:
     d -- This dictionary defines the set of widgets to use.
     parent -- Set the frame that will contain the widget.
-    options -- This can either be None or a dict which contains lists,
-        where the key is a key in d. For example, if options['mode'] is
-        ['delete_then_add', 'overlay'] then the widget for d['mode']
-        will be a drop-down box with those two choices.
+    template -- Describe the fields as they should appear in the UI in a
+        platform-independent way. If the field isn't described, its type
+        will determine its UI (such as Entry box for str and Checkbutton
+        for bool).
     '''
-    if options is None:
-        options = {}
-    if not hasattr(options, 'get'):
-        raise TypeError("options should be a dict.")
+    if template is None:
+        template = {}
+    elif not hasattr(template, 'get'):
+        raise TypeError("template should be a dict.")
+    if template.get('fields') is None:
+        template['fields'] = {}
+    elif not hasattr(template['fields'], 'get'):
+        raise TypeError("template['fields'] should be a dict.")
+    fields = template['fields']
+
     results = {}
     results['widgets'] = {}
     results['vs'] = {}
     for k, v in d.items():
+        field = fields.get(k)
+        if field is None:
+            field = {}
         widget = None
         expected_v = v
-        try_v = options.get(k)
-        if k in options:
-            try_v = options[k]
-        if (expected_v is None) or (isinstance(expected_v, str)):
+        widget_type = field.get('widget')
+        default_v = None
+        if 'default' in field:
+            expected_v = field['default']
+            default_v = field['default']
+        if 'values' in field:
+            expected_v = field['values']
+            # ^ It must be a list (See OptionMenu case below).
+            if widget_type is None:
+                widget_type = 'OptionMenu'
+            if default_v is None:
+                default_v = expected_v[0]
+
+        debug("  - {} widget_type: {}"
+              "".format(k, widget_type))
+        specified_widget = widget_type
+        if widget_type is None:
+            if (expected_v is None) or (isinstance(expected_v, str)):
+                widget_type = "Entry"
+            elif isinstance(expected_v, list):
+                widget_type = "OptionMenu"
+            elif isinstance(expected_v, bool):
+                widget_type = "Checkbutton"
+        if specified_widget != widget_type:
+            debug("    - detected widget_type: {}"
+                  "".format(widget_type))
+
+        if widget_type == "Entry":
             if v is None:
                 v = ""
             results['vs'][k] = tk.StringVar()
@@ -99,20 +203,31 @@ def dict_to_widgets(d, parent, options=None):
                 # state="readonly",
             )
             results['vs'][k].set(v)
-        elif isinstance(expected_v, list):
+        elif widget_type == "Label":
+            if v is None:
+                v = ""
+            results['vs'][k] = tk.StringVar()
+            widget = ttk.Label(
+                parent,
+                # width=25,
+                textvariable=results['vs'][k],
+                # state="readonly",
+            )
+            results['vs'][k].set(v)
+        elif widget_type == "OptionMenu":
             results['vs'][k] = tk.StringVar()
             if v is None:
                 v = ""
             widget = ttk.OptionMenu(
                 parent,
                 results['vs'][k],
-                expected_v[0],
+                default_v,
                 *expected_v
             )
             # ^ Comma can't be after *x in python2.
             # command=option_changed,
             results['vs'][k].set(v)
-        elif isinstance(expected_v, bool):
+        elif widget_type == "Checkbutton":
             results['vs'][k] = tk.IntVar()
             widget = ttk.Checkbutton(
                 parent,
@@ -125,14 +240,25 @@ def dict_to_widgets(d, parent, options=None):
             #     instead of a check mark in the box.
             results['vs'][k].set(1)
         else:
-            raise ValueError("A widget for {} is not implemented."
-                             "".format(type(v).__name__))
+            if widget_type is None:
+                raise ValueError("A widget for {} is not implemented."
+                                 " Try setting"
+                                 " template['fields']['{}']['widget']"
+                                 " to any appropriate widget type in: {}"
+                                 "".format(type(v).__name__, k,
+                                           WIDGET_TYPES))
+            else:
+                raise ValueError(" template['fields']['{}']['widget']"
+                                 " is {} but should be one of: {}"
+                                 "".format(k, widget_type,
+                                           WIDGET_TYPES))
         results['widgets'][k] = widget
 
     return results
 
 
-verbose = False
+verbose = get_verbose()
+
 
 class MainFrame(ttk.Frame):
     '''
@@ -246,7 +372,14 @@ class MainFrame(ttk.Frame):
 
         options = {}
         options['action'] = anewcommit.ACTIONS
-        results = dict_to_widgets(step, frame, options=options)
+        debug("- transition: {}".format(step))
+        results = dict_to_widgets(
+            step,
+            frame,
+            template=transition_template,
+        )
+        debug("  - dict_to_widgets got {} widgets."
+              "".format(len(results['widgets'])))
         for name, widget in results['widgets'].items():
             widget.pack(side=tk.LEFT)
             var = results['vs'][name]
@@ -301,7 +434,14 @@ class MainFrame(ttk.Frame):
 
         options = {}
         options['mode'] = anewcommit.MODES
-        results = dict_to_widgets(step, frame, options=options)
+        debug("- version: {}".format(step))
+        results = dict_to_widgets(
+            step,
+            frame,
+            template=version_template,
+        )
+        debug("  - dict_to_widgets got {} widgets."
+              "".format(len(results['widgets'])))
         for name, widget in results['widgets'].items():
             widget.pack(side=tk.LEFT)
             # widget.place(relx=relx, relwidth=relwidth, anchor=tk.W, relheight=.5, in_=frame)
@@ -339,6 +479,7 @@ class MainFrame(ttk.Frame):
             self._project = ANCProject()
             self._project.project_dir = path
         count = 0
+
         for sub in os.listdir(path):
             subPath = os.path.join(path, sub)
             if not os.path.isdir(subPath):
@@ -390,6 +531,7 @@ def main():
     if is_truthy(settings.get('verbose')):
         verbose = True
         error("* enabled verbose logging to standard error")
+    debug("versions_path: {}".format(versions_path))
     style = ttk.Style(root)
     preferred_themes = ['winnative', 'aqua', 'alt']
     # aqua: Darwin
