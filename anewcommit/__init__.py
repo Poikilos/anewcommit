@@ -3,10 +3,44 @@ from __future__ import print_function
 
 import sys
 
+verbose = False
+for argI in range(1, len(sys.argv)):
+    arg = sys.argv[argI]
+    if arg.startswith("--"):
+        if arg == "--debug":
+            verbose = True
+        elif arg == "--verbose":
+            verbose = True
+
+
 def error(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
+
+def debug(*args, **kwargs):
+    if not verbose:
+        return
+    print(*args, file=sys.stderr, **kwargs)
+
+
+def get_verbose():
+    return verbose
+
+def set_verbose(enable_verbose):
+    global verbose
+    if (enable_verbose is not True) and (enable_verbose is not False):
+        vMsg = enable_verbose
+        if isinstance(vMsg, str):
+            vMsg = '"{}"'.format(vMsg)
+        raise ValueError(
+            "enable_verbose must be True or False not {}."
+            "".format(vMsg)
+        )
+    verbose = enable_verbose
+
+
 trues = ["on", "true", "yes", "1"]
+
 
 def is_truthy(v):
     if v is None:
@@ -25,6 +59,7 @@ def is_truthy(v):
         if v != 0:
             return True
     return False
+
 
 def extract(src_file, new_parent_dir, auto_sub=True,
             auto_sub_name=None):
