@@ -74,7 +74,7 @@ for mode in anewcommit.MODES:
 WIDGET_TYPES = ["Checkbutton", "OptionMenu", "Entry", "Label"]
 
 actions_field_order = ['commit', 'verb', 'mode', 'name']
-actions_captions = ['insert', 'commit', 'action']
+actions_captions = ['       ', 'Commit   ', 'Action']
 transition_field_order = ['commit', 'verb', 'name']
 version_field_order = ['commit', 'mode', 'name']
 
@@ -84,6 +84,7 @@ if mode_width > selector_width:
     selector_width = mode_width
 field_widths['verb'] = selector_width
 field_widths['mode'] = selector_width
+field_widths['commit'] = 5
 
 conditional_formatting = {
     'verb': {
@@ -112,6 +113,7 @@ _version_template_fields = {
     },
     'commit': {
         'caption': '',
+        'default': True,
     },
 }
 
@@ -128,9 +130,10 @@ _transition_template_fields = {
     },
     'commit': {
         'caption': '',
+        'default': False,
     },
-
 }
+
 transition_template = {
     'fields': _transition_template_fields,
     'field_order': transition_field_order,
@@ -197,7 +200,7 @@ def dict_to_widgets(d, parent, template=None):
         if k not in d:
             error(
                 "Warning: The key '{}' is missing but is in field_order"
-                " (action={})."
+                " (action={}). A blank label will be added for spacing."
                 "".format(k, d)
             )
             v = ""
@@ -233,6 +236,12 @@ def dict_to_widgets(d, parent, template=None):
                 widget_type = "OptionMenu"
             elif isinstance(expected_v, bool):
                 widget_type = "Checkbutton"
+            else:
+                debug("- Choosing a widget for {} (value {} type {},"
+                      " expected a value like {} type {})"
+                      " is not automated."
+                      "".format(k, v, type(v).__name__,
+                                expected_v, type(expected_v).__name__))
         if specified_widget != widget_type:
             debug("    - detected widget_type: {}"
                   "".format(widget_type))
@@ -254,7 +263,8 @@ def dict_to_widgets(d, parent, template=None):
         elif not isinstance(width_v, str):
             width_v = str(width_v)
         else:
-            error("Warning: The value for '{}' is an unknown type: "
+            error("Warning: While determining width,"
+                  " the text for '{}' is an unknown type: "
                   " \"{}\" is a {}."
                   "".format(k, v, type(v).__name__))
 
@@ -317,19 +327,25 @@ def dict_to_widgets(d, parent, template=None):
             # indicatoron: If False, you must set your own visual
             #     instead of a check mark in the box.
             results['vs'][k].set(1)
+            if (default_v is False) or (default_v == 0):
+                results['vs'][k].set(0)
         else:
             if widget_type is None:
-                raise ValueError("A widget for {} is not implemented."
-                                 " Try setting"
-                                 " template['fields']['{}']['widget']"
-                                 " to any appropriate widget type in: {}"
-                                 "".format(type(v).__name__, k,
-                                           WIDGET_TYPES))
+                raise ValueError(
+                    "A widget for '{}'"
+                    " (type is {}, specified widget={})"
+                    " is not implemented. Try setting"
+                    " template['fields']['{}']['widget']"
+                    " to any appropriate widget type in: {}"
+                    "".format(k, type(v).__name__, widget_type, k,
+                              WIDGET_TYPES)
+                )
             else:
-                raise ValueError(" template['fields']['{}']['widget']"
-                                 " is {} but should be one of: {}"
-                                 "".format(k, widget_type,
-                                           WIDGET_TYPES))
+                raise ValueError(
+                    " template['fields']['{}']['widget']"
+                    " is {} but should be one of: {}"
+                    "".format(k, widget_type, WIDGET_TYPES)
+                )
         results['widgets'][k] = widget
 
     return results
@@ -557,6 +573,15 @@ class MainFrame(ttk.Frame):
             self._project = ANCProject()
             self._project.project_dir = path
         count = 0
+
+        frame = tk.Frame(self)
+        for caption in actions_captions:
+            widget = ttk.Label(
+                frame,
+                text=caption,
+            )
+            widget.pack(side=tk.LEFT)
+        frame.pack(fill=tk.X)
 
         for sub in os.listdir(path):
             subPath = os.path.join(path, sub)
