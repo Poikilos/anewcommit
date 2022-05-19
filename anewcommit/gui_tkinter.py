@@ -113,7 +113,6 @@ _version_template_fields = {
     },
     'commit': {
         'caption': '',
-        'default': True,
     },
 }
 
@@ -130,7 +129,6 @@ _transition_template_fields = {
     },
     'commit': {
         'caption': '',
-        'default': False,
     },
 }
 
@@ -153,6 +151,9 @@ def dict_to_widgets(d, parent, template=None):
     in every other dict in the results dict is the corresponding key in
     dictionary d. The widgets will not be packed. The results also
     contains results['vs'] which has StringVar instances.
+
+    This method does NOT handle defaults. The data comes directly from
+    d.
 
     Sequential arguments:
     d -- This dictionary defines the set of widgets to use.
@@ -214,17 +215,11 @@ def dict_to_widgets(d, parent, template=None):
         expected_v = v
         if widget_type is None:
             widget_type = spec.get('widget')
-        default_v = None
-        if 'default' in spec:
-            expected_v = spec['default']
-            default_v = spec['default']
         if 'values' in spec:
             expected_v = spec['values']
             # ^ It must be a list (See OptionMenu case below).
             if widget_type is None:
                 widget_type = 'OptionMenu'
-            if default_v is None:
-                default_v = expected_v[0]
 
         debug("  - {} widget_type: {}"
               "".format(k, widget_type))
@@ -305,7 +300,7 @@ def dict_to_widgets(d, parent, template=None):
             widget = ttk.OptionMenu(
                 parent,
                 results['vs'][k],
-                default_v,
+                v,
                 *expected_v
             )
             widget.configure(
@@ -327,7 +322,7 @@ def dict_to_widgets(d, parent, template=None):
             # indicatoron: If False, you must set your own visual
             #     instead of a check mark in the box.
             results['vs'][k].set(1)
-            if (default_v is False) or (default_v == 0):
+            if (v is False) or (v == 0):
                 results['vs'][k].set(0)
         else:
             if widget_type is None:
