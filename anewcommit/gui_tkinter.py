@@ -61,10 +61,10 @@ from anewcommit import (
 session = None
 playerIndex = 0
 
-action_width = 1
-for action in anewcommit.ACTIONS:
-    if len(action) > action_width:
-        action_width = len(action)
+verb_width = 1
+for verb in anewcommit.VERBS:
+    if len(verb) > verb_width:
+        verb_width = len(verb)
 
 mode_width = 1
 for mode in anewcommit.MODES:
@@ -73,10 +73,10 @@ for mode in anewcommit.MODES:
 
 WIDGET_TYPES = ["Checkbutton", "OptionMenu", "Entry", "Label"]
 
-main_field_order = ['commit', 'name', 'action', 'mode']
+main_field_order = ['commit', 'name', 'verb', 'mode']
 
 conditional_formatting = {
-    'action': {
+    'verb': {
         '=get_version': {
             'readonly': True,
         },
@@ -92,8 +92,8 @@ _version_template_fields = {
     'path': {
         'hide': True,
     },
-    'action': {
-        'maxchars': action_width,
+    'verb': {
+        'maxchars': verb_width,
         'widget': "Label",
     },
     'mode': {
@@ -112,9 +112,9 @@ _transition_template_fields = {
     'path': {
         'hide': True,
     },
-    'action': {
-        'maxchars': action_width,
-        'values': anewcommit.ACTIONS,
+    'verb': {
+        'maxchars': verb_width,
+        'values': anewcommit.VERBS,
     },
     'commit': {
         'caption': '',
@@ -181,7 +181,7 @@ def dict_to_widgets(d, parent, template=None):
         if k not in d:
             error(
                 "Warning: The key '{}' is missing but is in field_order"
-                " (step={})."
+                " (action={})."
                 "".format(k, d)
             )
             v = ""
@@ -300,15 +300,15 @@ class MainFrame(ttk.Frame):
     Private Attributes:
     _project -- This is the currently loaded ANCProject instance.
     _frame_of_luid -- _frame_of_luid[luid] is the row, in the form of a
-        frame, that represents the action (version or transition)
-        uniquely identified by a luid.
+        frame, that represents the action (verb can be "get_version" or
+        a transition verb) uniquely identified by a luid.
     _id_of_path -- _id_of_path[path] is the luid of the path. The path
         must appear only one time in the project (Theoretically it
         could appear more than once but either the commit would be a
         reversion or there would have to be some other operation that
         modifies it before a commit).
     _vars_of_luid -- _vars_of_luid[luid][key] is the widget of
-        the step key for the step uniquely identified by luid.
+        the action for the action uniquely identified by luid.
     '''
     def __init__(self, parent, settings=None):
         all_settings = copy.deepcopy(ANCProject.default_settings)
@@ -364,30 +364,30 @@ class MainFrame(ttk.Frame):
         if directory is not None:
             self.add_versions_in(directory)
 
-    def _add_transition_row(self, step):
+    def _add_transition_row(self, action):
         '''
         Sequential arguments:
-        step -- The step must be any action other than 'get_version' in
-            the case of this method, therefore the step dict must
+        action -- The action must be any action other than 'get_version'
+            in the case of this method, therefore the action dict must
             contain the keys as returned by the anewcommit.new_*
             functions other than new_version.
         '''
-        # step keys: mode, action, commit
-        # - where action is not 'get_version'
-        if step.get('action') is None:
-            raise ValueError("The action is None")
-        elif step.get('action') == 'get_version':
+        # action keys: mode, verb, commit
+        # - where verb is not 'get_version'
+        if action.get('verb') is None:
+            raise ValueError("The verb is None")
+        elif action.get('verb') == 'get_version':
             raise ValueError(
-                "The action is get_version, but that is not valid for"
+                "The verb is get_version, but that is not valid for"
                 "_add_transition_row."
             )
-        elif step.get('action') not in anewcommit.ACTIONS:
+        elif action.get('verb') not in anewcommit.VERBS:
             raise ValueError(
-                "The action must be: {}"
-                "".format(anewcommit.ACTIONS)
+                "The verb must be: {}"
+                "".format(anewcommit.VERBS)
             )
         frame = tk.Frame(self)
-        luid = step['luid']
+        luid = action['luid']
         self._frame_of_luid[luid] = frame
         self._vars_of_luid[luid] = {}
         button = ttk.Button(
@@ -400,10 +400,10 @@ class MainFrame(ttk.Frame):
         button.pack(side=tk.LEFT, padx=(10, 0))
 
         options = {}
-        options['action'] = anewcommit.ACTIONS
-        debug("- transition: {}".format(step))
+        options['verb'] = anewcommit.VERBS
+        debug("- transition: {}".format(action))
         results = dict_to_widgets(
-            step,
+            action,
             frame,
             template=transition_template,
         )
@@ -415,26 +415,26 @@ class MainFrame(ttk.Frame):
             self._vars_of_luid[luid][name] = var
         frame.pack(fill=tk.X)
 
-    def _add_version_row(self, step):
+    def _add_version_row(self, action):
         '''
         Sequential arguments:
-        step -- The step must be a version in the case of this method,
-            therefore the step dict must contain the keys as returned
-            by the anewcommit.new_version function. The value for
-            'action' must be 'get_version'
+        action -- The action must be a version in the case of this
+            method, therefore the action dict must contain the keys as
+            returned by the anewcommit.new_version function. The value
+            for 'verb' must be 'get_version'
         '''
-        # step keys: path, mode, action, commit
-        # - where action is 'get_version'
+        # action keys: path, mode, verb, commit
+        # - where verb is 'get_version'
         # - where mode is in MODES
-        if step.get('action') is None:
-            raise ValueError("The action is None")
-        elif step.get('action') != 'get_version':
+        if action.get('verb') is None:
+            raise ValueError("The verb is None")
+        elif action.get('verb') != 'get_version':
             raise ValueError(
-                "The action is {}, but only get_version is valid for"
-                "_add_version_row.".format(step.get('action'))
+                "The verb is {}, but only get_version is valid for"
+                "_add_version_row.".format(action.get('verb'))
             )
         row = self.rows
-        path = step.get('path')
+        path = action.get('path')
         name = os.path.split(path)[1]
         frame = tk.Frame(self)
         # label = ttk.Label(frame, text=name)
@@ -442,7 +442,7 @@ class MainFrame(ttk.Frame):
         if path in self._id_of_path:
             raise ValueError("The path already exists: {}"
                              "".format(path))
-        luid = step['luid']
+        luid = action['luid']
         self._frame_of_luid[luid] = frame
         self._vars_of_luid[luid] = {}
         self._id_of_path[path] = luid
@@ -463,9 +463,9 @@ class MainFrame(ttk.Frame):
 
         options = {}
         options['mode'] = anewcommit.MODES
-        debug("- version: {}".format(step))
+        debug("- version: {}".format(action))
         results = dict_to_widgets(
-            step,
+            action,
             frame,
             template=version_template,
         )
@@ -485,12 +485,12 @@ class MainFrame(ttk.Frame):
         error("NotYetImplemented: add_before('{}')".format(path))
 
     def add_transition_and_source(self, path):
-        transition_step = self._project.add_transition('no_op')
+        transition_action = self._project.add_transition('no_op')
         try:
-            self._add_transition_row(transition_step)
-            version_step = self._project.add_version(path)
+            self._add_transition_row(transition_action)
+            version_action = self._project.add_version(path)
             try:
-                self._add_version_row(version_step)
+                self._add_version_row(version_action)
             except (ValueError, TypeError) as ex2:
                 if verbose:
                     raise ex2

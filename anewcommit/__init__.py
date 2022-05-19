@@ -103,17 +103,17 @@ def _new_process(luid=None):
     luid -- If None, generate a LUID (a locally-unique ID). The value
         must be a node ID that is unique within the scope of the
         project file, for any use such as by gui component dictionaries.
-        There is one luid for each step, so there may be multiple
+        There is one luid for each action, so there may be multiple
         named widgets in the group. If a unique id is necessary for
         every widget in your widget system, you can use `luid + "." +
-        key` for the key where key is the key in the step dictionary.
+        key` for the key where key is the key in the action dictionary.
     '''
     if luid is None:
         luid = gen_luid()
     return {
         'luid': luid,
-        'action': 'no_op',
-        'commit': False,  # Change this to True if action changes.
+        'verb': 'no_op',
+        'commit': False,  # Change this to True if verb changes.
     }
 
 
@@ -124,30 +124,30 @@ def new_version(path, mode='delete_then_add', luid=None, name=None):
     name -- Tag the subversion. If None, name is set to the leaf of the
         path.
     '''
-    step = _new_process(luid=luid)
+    action = _new_process(luid=luid)
     if mode not in MODES:
         raise ValueError("Mode must be one of: {}".format(MODES))
 
-    step['path'] = path
-    step['mode'] = mode  # The mode only applies to 'get_version'.
-    step['action'] = 'get_version'
-    step['commit'] = True
+    action['path'] = path
+    action['mode'] = mode  # The mode only applies to 'get_version'.
+    action['verb'] = 'get_version'
+    action['commit'] = True
     if name is None:
-        step['name'] = os.path.split(path)[1]
+        action['name'] = os.path.split(path)[1]
     else:
-        step['name'] = name
-    return step
+        action['name'] = name
+    return action
 
 
-ACTIONS = [
+VERBS = [
     'pre_process',
     'post_process',
     'no_op',
 ]
 
-# The special action is get_version, and is added via add_version.
+# The special verb is get_version, and is added via add_version.
 
-ACTIONS_HELP = {
+VERBS_HELP = {
     'pre_process': 'Make changes to the next version before a commit.',
     'post_process': 'Make changes to the previous version.',
     'no_op': 'Do not modify the previous version.',
@@ -156,32 +156,32 @@ ACTIONS_HELP = {
 
 def new_pre_process(luid=None):
     '''
-    A pre-process action affects the next version in the list of steps.
+    A pre-process verb affects the next version in the list of actions.
 
     Keyword arguments:
     luid -- If None, generate a LUID. See _new_process for more info.
     '''
-    step = _new_process()
-    step['action'] = 'pre_process'
-    step['commit'] = True
+    action = _new_process()
+    action['verb'] = 'pre_process'
+    action['commit'] = True
     if luid is None:
         luid = gen_luid()
-    return step
+    return action
 
 
 def new_post_process(luid=None):
     '''
     A post-process action affects the previous version in the list of
-    steps. For example, renaming directories or files as a separate
+    actions. For example, renaming directories or files as a separate
     commit may make committing the next version more clean.
 
     Keyword arguments:
     luid -- If None, generate a LUID. See _new_process for more info.
     '''
-    step = _new_process()
-    step['action'] = 'post_process'
-    step['commit'] = True
-    return step
+    action = _new_process()
+    action['verb'] = 'post_process'
+    action['commit'] = True
+    return action
 
 
 class ANCProject:
@@ -191,50 +191,50 @@ class ANCProject:
     Public Properties:
     project_dir -- The metadata for the various version directories will
         be stored here.
-    steps -- This is a list of actions to take, such as pre-processing
+    actions -- This is a list of actions to take, such as pre-processing
         or post-processing a version.
     '''
     default_settings = {}
 
     def __init__(self):
         self.project_dir = None
-        self.steps = []
+        self.actions = []
 
-    def add_transition(self, action):
+    def add_transition(self, verb):
         '''
         Sequential arguments:
-        action -- Set operation string from the OPS table to decide what
+        verb -- Set operation string from the OPS table to decide what
             to do between versions.
         '''
-        step = None
-        if action == "pre_process":
-            step = new_pre_process()
-        elif action == "post_process":
-            step = new_post_process()
-        elif action == "no_op":
-            step = _new_process()
+        action = None
+        if verb == "pre_process":
+            action = new_pre_process()
+        elif verb == "post_process":
+            action = new_post_process()
+        elif verb == "no_op":
+            action = _new_process()
         else:
             raise ValueError(
-                "The action is unknown: {}"
-                "".format(action)
+                "The verb is unknown: {}"
+                "".format(verb)
             )
-        self.steps.append(step)
-        return step
+        self.actions.append(action)
+        return action
 
     def add_version(self, path, mode='delete_then_add'):
         '''
         Sequential arguments:
         path -- This is a path to a version.
         '''
-        step = new_version(path, mode=mode)
+        action = new_version(path, mode=mode)
         # ^ new_version raises ValueError if the mode is invalid.
-        self.steps.append(step)
-        return step
+        self.actions.append(action)
+        return action
 
     def to_dict(self):
         return {
             'project_dir': self.project_dir,
-            'steps': self.steps,
+            'actions': self.actions,
         }
 
 
