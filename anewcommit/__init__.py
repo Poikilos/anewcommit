@@ -27,6 +27,7 @@ def debug(*args, **kwargs):
 def get_verbose():
     return verbose
 
+
 def set_verbose(enable_verbose):
     global verbose
     if (enable_verbose is not True) and (enable_verbose is not False):

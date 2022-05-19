@@ -73,7 +73,17 @@ for mode in anewcommit.MODES:
 
 WIDGET_TYPES = ["Checkbutton", "OptionMenu", "Entry", "Label"]
 
-main_field_order = ['commit', 'name', 'verb', 'mode']
+actions_field_order = ['commit', 'verb', 'mode', 'name']
+actions_captions = ['insert', 'commit', 'action']
+transition_field_order = ['commit', 'verb', 'name']
+version_field_order = ['commit', 'mode', 'name']
+
+field_widths = {}
+selector_width = verb_width
+if mode_width > selector_width:
+    selector_width = mode_width
+field_widths['verb'] = selector_width
+field_widths['mode'] = selector_width
 
 conditional_formatting = {
     'verb': {
@@ -119,15 +129,18 @@ _transition_template_fields = {
     'commit': {
         'caption': '',
     },
+
 }
 transition_template = {
     'fields': _transition_template_fields,
-    'field_order': main_field_order,
+    'field_order': transition_field_order,
+    'field_widths': field_widths,
 }
 
 version_template = {
     'fields': _version_template_fields,
-    'field_order': main_field_order,
+    'field_order': version_field_order,
+    'field_widths': field_widths,
 }
 
 
@@ -162,6 +175,9 @@ def dict_to_widgets(d, parent, template=None):
         fields_done = [False for key in field_order]
     '''
     field_order = template.get('field_order')
+    field_widths = template.get('field_widths')
+    if field_widths is None:
+        field_widths = {}
     all_done = {}
     for key in d.keys():
         all_done[key] = False
@@ -221,13 +237,41 @@ def dict_to_widgets(d, parent, template=None):
             debug("    - detected widget_type: {}"
                   "".format(widget_type))
 
+        caption = spec.get('caption')
+        width_v = v
+        if caption is None:
+            caption = k
+        else:
+            width_v = caption
+        if width_v is None:
+            width_v = ""
+        if isinstance(width_v, int):
+            width_v = str(width_v)
+        elif isinstance(width_v, float):
+            width_v = str(width_v)
+        elif isinstance(width_v, bool):
+            width_v = len(caption)
+        elif not isinstance(width_v, str):
+            width_v = str(width_v)
+        else:
+            error("Warning: The value for '{}' is an unknown type: "
+                  " \"{}\" is a {}."
+                  "".format(k, v, type(v).__name__))
+
+        width = field_widths.get(k)
+        if width is None:
+            width = len(width_v)
+            if width < 1:
+                width = 1
+        # OptionMenuAdditionalW = 4
+        # width += OptionMenuAdditionalW
         if widget_type == "Entry":
             if v is None:
                 v = ""
             results['vs'][k] = tk.StringVar()
             widget = ttk.Entry(
                 parent,
-                # width=25,
+                width=width,
                 textvariable=results['vs'][k],
                 # state="readonly",
             )
@@ -238,12 +282,13 @@ def dict_to_widgets(d, parent, template=None):
             results['vs'][k] = tk.StringVar()
             widget = ttk.Label(
                 parent,
-                # width=25,
+                width=width,
                 textvariable=results['vs'][k],
                 # state="readonly",
             )
             results['vs'][k].set(v)
         elif widget_type == "OptionMenu":
+            # width -= OptionMenuAdditionalW
             results['vs'][k] = tk.StringVar()
             if v is None:
                 v = ""
@@ -253,6 +298,9 @@ def dict_to_widgets(d, parent, template=None):
                 default_v,
                 *expected_v
             )
+            widget.configure(
+                width=width,
+            )
             # ^ Comma can't be after *x in python2.
             # command=option_changed,
             results['vs'][k].set(v)
@@ -260,7 +308,8 @@ def dict_to_widgets(d, parent, template=None):
             results['vs'][k] = tk.IntVar()
             widget = ttk.Checkbutton(
                 parent,
-                text=k,
+                text=caption,
+                width=width,
                 variable=results['vs'][k],
                 onvalue=1,
                 offvalue=0,
