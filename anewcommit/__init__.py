@@ -3,6 +3,7 @@ from __future__ import print_function
 
 import sys
 import os
+import platform
 
 verbose = False
 for argI in range(1, len(sys.argv)):
@@ -40,6 +41,9 @@ def set_verbose(enable_verbose):
         )
     verbose = enable_verbose
 
+profile = os.environ.get('HOME')
+if platform.system() == "Windows":
+    profile = os.environ.get('USERPROFILE')
 
 trues = ["on", "true", "yes", "1"]
 
@@ -52,7 +56,7 @@ def is_truthy(v):
     elif v is False:
         return False
     elif isinstance(v, str):
-        if v_lower in trues:
+        if v.lower() in trues:
             return True
     elif isinstance(v, int):
         if v != 0:
@@ -118,6 +122,25 @@ def _new_process(luid=None):
     }
 
 
+VERSION_VERBS = [
+    'get_version',
+]
+
+TRANSITION_VERBS = [
+    'pre_process',
+    'post_process',
+    'no_op',
+]
+
+# The special verb is get_version, and is added via add_version.
+
+VERBS_HELP = {
+    'pre_process': 'Make changes to the next version before a commit.',
+    'post_process': 'Make changes to the previous version.',
+    'no_op': 'Do not modify the previous version.',
+}
+
+
 def new_version(path, mode='delete_then_add', luid=None, name=None):
     '''
     Keyword arguments:
@@ -131,28 +154,13 @@ def new_version(path, mode='delete_then_add', luid=None, name=None):
 
     action['path'] = path
     action['mode'] = mode  # The mode only applies to 'get_version'.
-    action['verb'] = 'get_version'
+    action['verb'] = VERSION_VERBS[0]
     action['commit'] = True
     if name is None:
         action['name'] = os.path.split(path)[1]
     else:
         action['name'] = name
     return action
-
-
-VERBS = [
-    'pre_process',
-    'post_process',
-    'no_op',
-]
-
-# The special verb is get_version, and is added via add_version.
-
-VERBS_HELP = {
-    'pre_process': 'Make changes to the next version before a commit.',
-    'post_process': 'Make changes to the previous version.',
-    'no_op': 'Do not modify the previous version.',
-}
 
 
 def new_pre_process(luid=None):
@@ -231,6 +239,64 @@ class ANCProject:
         # ^ new_version raises ValueError if the mode is invalid.
         self.actions.append(action)
         return action
+
+    def _find_action(self, luid):
+        for i in range(len(self.actions)):
+            action = self.actions[i]
+            if action['luid'] == luid:
+                return i
+        return -1
+
+    def get_action(self, luid):
+        i = self._find_action(luid)
+        if i > -1:
+            return self.actions[i]
+        return None
+    
+    def insert(self, index, action):
+        '''
+        Sequential arguments:
+        index -- This is an index in self.actions (usually NOT the same as
+            self.actions[index].luid).
+        action -- Insert this action dictionary.
+        '''
+        self.actions.append(None)
+        # for i in range(len(self.actions), -1, -1):  # ok but hard to read
+        for i in reversed(range(1, len(self.actions))):
+            if i >= index:
+                self.actions[i] = self.actions[i-1]
+            else:
+                break
+        self.actions[index] = action
+
+    def insert_before(self, luid, action):
+        '''
+        Sequential arguments:
+        luid -- Insert before this luid.
+        action -- Insert this action dictionary.
+        '''
+        newI = self._find_action(luid)
+        if newI < 0:
+            raise ValueError("There is no luid {}".format(luid))
+        self.insert(newI, action)
+
+    def set_commit(self, luid, on):
+        action = self.get_action(luid)
+        error("NotYetImplemented: set_commit('{}', {})"
+              "".format(luid, on))
+
+    def set_verb(self, luid, verb):
+        action = self.get_action(luid)
+        current_verb = None
+        current_verb = action['verb']
+        if current_verb in VERSION_VERBS:
+            raise ValueError(
+                "The verb is {} so it can't change."
+                "The action parameters aren't same as for other TRANSITION_VERBS."
+                "".format(current_verb)
+            )
+        error("NotYetImplemented: set_verb('{}', {})"
+              "".format(luid, verb))
 
     def to_dict(self):
         return {

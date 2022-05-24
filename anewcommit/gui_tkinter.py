@@ -56,13 +56,15 @@ from anewcommit import (
     is_truthy,
     debug,
     get_verbose,
+    profile,
 )
 
+verbose = get_verbose()
 session = None
 playerIndex = 0
 
 verb_width = 1
-for verb in anewcommit.VERBS:
+for verb in anewcommit.TRANSITION_VERBS:
     if len(verb) > verb_width:
         verb_width = len(verb)
 
@@ -84,7 +86,7 @@ if mode_width > selector_width:
     selector_width = mode_width
 field_widths['verb'] = selector_width
 field_widths['mode'] = selector_width
-field_widths['commit'] = 5
+# field_widths['commit'] = 5
 
 conditional_formatting = {
     'verb': {
@@ -125,7 +127,7 @@ _transition_template_fields = {
     },
     'verb': {
         'maxchars': verb_width,
-        'values': anewcommit.VERBS,
+        'values': anewcommit.TRANSITION_VERBS,
     },
     'commit': {
         'caption': '',
@@ -137,12 +139,29 @@ transition_template = {
     'field_order': transition_field_order,
     'field_widths': field_widths,
 }
+# ^ modified later to include lambdas calling class methods.
 
 version_template = {
     'fields': _version_template_fields,
     'field_order': version_field_order,
     'field_widths': field_widths,
 }
+# ^ modified later to include lambdas calling class methods.
+
+
+def default_callback(*args, **kwargs):
+    # sv.trace_add callback sends 3 sequential arguments:
+    # - str such as "PY_VAR0" (var._name)
+    # - str (blank for unknown reason)
+    # - str such as "write" (or at end of program, "unset")
+    error("NotYetImplemented: default_callback")
+
+    for arg in args:
+        error('- {} "{}"'.format(type(arg).__name__, arg))
+    for pair in kwargs.items():
+        # k, v = pair
+        # error("  {}: {}".format(k, v))
+        error("  {}".format(pair))
 
 
 def dict_to_widgets(d, parent, template=None):
@@ -185,17 +204,20 @@ def dict_to_widgets(d, parent, template=None):
     all_done = {}
     for key in d.keys():
         all_done[key] = False
+    del key
     fields_done = all_done
     if field_order is None:
         field_order = d.keys()
         fields_done = {}
         for key in field_order:
             fields_done[key] = False
+        del key
 
     results = {}
     results['widgets'] = {}
     results['vs'] = {}
     # for k, v in d.items():
+
     for k in field_order:
         widget_type = None
         if k not in d:
@@ -300,7 +322,7 @@ def dict_to_widgets(d, parent, template=None):
             widget = ttk.OptionMenu(
                 parent,
                 results['vs'][k],
-                v,
+                v,  # N/A: See .set below instead.
                 *expected_v
             )
             widget.configure(
@@ -344,9 +366,6 @@ def dict_to_widgets(d, parent, template=None):
         results['widgets'][k] = widget
 
     return results
-
-
-verbose = get_verbose()
 
 
 class MainFrame(ttk.Frame):
@@ -402,6 +421,9 @@ class MainFrame(ttk.Frame):
         self._id_of_path = {}
         self._vars_of_luid = {}
         self._frame_of_luid = {}
+        self._key_of_name = {}
+        self._luid_of_name = {}
+        self._var_of_name = {}
         menu = tk.Menu(self.parent)
         self.menu = menu
         self.parent.config(menu=menu)
@@ -424,6 +446,11 @@ class MainFrame(ttk.Frame):
         if directory is not None:
             self.add_versions_in(directory)
 
+    def on_var_changed(self, luid, key, var):
+        error("Warning: A callback wasn't specified to dict_to_widgets"
+              " (self type is {}, luid=\"{}\", key='{}', var.get()={})"
+              "".format(type(self).__name__, luid, key, var.get()))
+
     def _add_transition_row(self, action):
         '''
         Sequential arguments:
@@ -441,10 +468,10 @@ class MainFrame(ttk.Frame):
                 "The verb is get_version, but that is not valid for"
                 "_add_transition_row."
             )
-        elif action.get('verb') not in anewcommit.VERBS:
+        elif action.get('verb') not in anewcommit.TRANSITION_VERBS:
             raise ValueError(
                 "The verb must be: {}"
-                "".format(anewcommit.VERBS)
+                "".format(anewcommit.TRANSITION_VERBS)
             )
         frame = tk.Frame(self)
         luid = action['luid']
@@ -454,19 +481,33 @@ class MainFrame(ttk.Frame):
             frame,
             text="+",
             width=2,
-            command=lambda: self.add_before(luid),
+            command=lambda: self.insert_before(luid),
         )
         # button.grid(column=1, row=row, sticky=tk.W)
         button.pack(side=tk.LEFT, padx=(10, 0))
 
         options = {}
-        options['verb'] = anewcommit.VERBS
+        options['verb'] = anewcommit.TRANSITION_VERBS
         debug("- transition: {}".format(action))
         results = dict_to_widgets(
             action,
             frame,
             template=transition_template,
         )
+        # app = self
+        for k, var in results['vs'].items():
+            # var.trace_add('write', lambda *args: self.on_var_changed(luid, k, results['vs'][k]))
+            # ^ always has same k due to late binding
+            #   (See <https://stackoverflow.com/questions/3431676/
+            #   creating-functions-in-a-loop>)
+            #   So force early binding:
+            def on_this_var_changed(*args, luid=luid, k=k):
+                # ^ params force early binding
+                debug("on_this_var_changed({},...)".format(args))
+                self.on_var_changed(luid, k, results['vs'][k])
+            var.trace_add('write', on_this_var_changed)
+            # var.trace_add(['write', 'unset'], default_callback)
+            # ^ In Python 2 it was trace('wu', ...)
         debug("  - dict_to_widgets got {} widgets."
               "".format(len(results['widgets'])))
         for name, widget in results['widgets'].items():
@@ -474,6 +515,7 @@ class MainFrame(ttk.Frame):
             var = results['vs'][name]
             self._vars_of_luid[luid][name] = var
         frame.pack(fill=tk.X)
+        self.rows += 1
 
     def _add_version_row(self, action):
         '''
@@ -510,7 +552,7 @@ class MainFrame(ttk.Frame):
             frame,
             text="+",
             width=2,
-            command=lambda: self.add_before(luid),
+            command=lambda: self.insert_before(luid),
         )
         # button.grid(column=1, row=row, sticky=tk.W)
         button.pack(side=tk.LEFT, padx=(10, 0))
@@ -529,6 +571,24 @@ class MainFrame(ttk.Frame):
             frame,
             template=version_template,
         )
+        for k, var in results['vs'].items():
+            # self._key_of_name[var._name] = k
+            # self._luid_of_name[var._name] = luid
+            # self._var_of_name[var._name] = var
+            # var.trace_add('write', lambda *args: self.on_var_changed(luid, k, results['vs'][k]))
+            # var.trace_add(['write', 'unset'], default_callback)
+            # ^ In Python 2 it was trace('wu', ...)
+
+            # ^ always has same k due to late binding
+            #   (See <https://stackoverflow.com/questions/3431676/
+            #   creating-functions-in-a-loop>)
+            #   So force early binding:
+            def on_this_var_changed(*args, luid=luid, k=k):
+                # ^ params force early binding
+                debug("on_this_var_changed({},...)".format(args))
+                self.on_var_changed(luid, k, results['vs'][k])
+            var.trace_add('write', on_this_var_changed)
+
         debug("  - dict_to_widgets got {} widgets."
               "".format(len(results['widgets'])))
         for name, widget in results['widgets'].items():
@@ -540,9 +600,37 @@ class MainFrame(ttk.Frame):
         frame.pack(fill=tk.X)
         # expand=True: makes the row taller so rows fill the window
         self.rows += 1
+        
+    def _insert(self, index, action):
+        '''
+        Generate a new panel and insert it at the given index. This method
+        is private since the action must already exist at the same index in
+        the self._project.actions list so that both lists match.
+        
+        Sequential arguments:
+        index -- Insert the item here in the list view.
+        action -- Insert this action dictionary.
+        '''
+        raise NotImplementedError("NotYetImplemented: {}._insert('{}')"
+              "".format(type(self).__name__, index))
+  
+    def insert_before(self, luid):
+        action = None
+        index = self._project._find_action(luid)
+        # old_action = self._project.get_action(luid)
+        old_action = self._project.actions[index]
+        if old_action['verb'] in anewcommit.VERSION_VERBS:
+            action = anewcommit.new_pre_process()
+        else:
+            action = anewcommit.new_post_process()
+        self._project.insert(index, action)
+        self._insert(index, action)
 
-    def add_before(self, path):
-        error("NotYetImplemented: add_before('{}')".format(path))
+    def set_commit(self, luid, on):
+        self._project.set_commit(luid, on)
+
+    def set_verb(self, luid, verb):
+        self._project.set_verb(luid, verb)
 
     def add_transition_and_source(self, path):
         transition_action = self._project.add_transition('no_op')
@@ -602,8 +690,8 @@ def main():
 
     global root
     root = tk.Tk()
-    root.geometry("1000x600")
-    root.minsize(600, 400)
+    root.geometry("500x600")
+    root.minsize(200, 100)
     root.title("anewcommit")
     versions_path = None
     bool_names = ['--verbose']
@@ -660,6 +748,10 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        test_case_dir = os.path.join(profile, "www.etc", "TCS", "VERSIONS")
+        if os.path.isdir(test_case_dir):
+            sys.argv.append(test_case_dir)
     main()
 
 
