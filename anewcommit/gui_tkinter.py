@@ -451,103 +451,61 @@ class MainFrame(ttk.Frame):
               " (self type is {}, luid=\"{}\", key='{}', var.get()={})"
               "".format(type(self).__name__, luid, key, var.get()))
 
-    def _add_transition_row(self, action):
+    def _append_row(self, action):
         '''
+        Add an action to the end of the list view. The reason
+        this method is private is that the action must also
+        exist in self._project.actions at the same index so
+        that the GUI and backend data match.
         Sequential arguments:
-        action -- The action must be any action other than 'get_version'
-            in the case of this method, therefore the action dict must
+        action -- If the action is a version
+            (action['verb'] is in anewcommit.VERSION_VERBS),
+            the action dict must contain the keys as
+            returned by the anewcommit.new_version function.
+            If the action is a version
+            (action['verb'] is in anewcommit.TRANSITION_VERBS),
+            the action dict must
             contain the keys as returned by the anewcommit.new_*
             functions other than new_version.
         '''
-        # action keys: mode, verb, commit
-        # - where verb is not 'get_version'
+        # version action keys: path, mode, verb, commit
+        # - where verb is in anewcommit.VERSION_VERBS
+        # - where mode is in anewcommit.MODES
+        # transition action keys: verb, commit
+        # - where verb is in anewcommit.TRANSITION_VERBS
+        luid = action['luid']
+        this_template = None
+        options = {}
+        path = None
+        name = None
         if action.get('verb') is None:
             raise ValueError("The verb is None")
-        elif action.get('verb') == 'get_version':
-            raise ValueError(
-                "The verb is get_version, but that is not valid for"
-                "_add_transition_row."
-            )
-        elif action.get('verb') not in anewcommit.TRANSITION_VERBS:
+        elif action.get('verb') in anewcommit.TRANSITION_VERBS:
+            this_template = transition_template
+            options['verb'] = anewcommit.TRANSITION_VERBS
+            debug("- transition: {}".format(action))
+        elif action.get('verb') in anewcommit.VERSION_VERBS:
+            this_template = version_template
+            options['mode'] = anewcommit.MODES
+            debug("- version: {}".format(action))
+            path = action.get('path')
+            # name = None
+            # if path is not None:
+            name = os.path.split(path)[1]
+            if path in self._id_of_path:
+                raise ValueError("The path already exists: {}"
+                                 "".format(path))
+            self._id_of_path[path] = luid
+        else:
             raise ValueError(
                 "The verb must be: {}"
-                "".format(anewcommit.TRANSITION_VERBS)
-            )
-        frame = tk.Frame(self)
-        luid = action['luid']
-        self._frame_of_luid[luid] = frame
-        self._vars_of_luid[luid] = {}
-        button = ttk.Button(
-            frame,
-            text="+",
-            width=2,
-            command=lambda: self.insert_before(luid),
-        )
-        # button.grid(column=1, row=row, sticky=tk.W)
-        button.pack(side=tk.LEFT, padx=(10, 0))
-
-        options = {}
-        options['verb'] = anewcommit.TRANSITION_VERBS
-        debug("- transition: {}".format(action))
-        results = dict_to_widgets(
-            action,
-            frame,
-            template=transition_template,
-        )
-        # app = self
-        for k, var in results['vs'].items():
-            # var.trace_add('write', lambda *args: self.on_var_changed(luid, k, results['vs'][k]))
-            # ^ always has same k due to late binding
-            #   (See <https://stackoverflow.com/questions/3431676/
-            #   creating-functions-in-a-loop>)
-            #   So force early binding:
-            def on_this_var_changed(*args, luid=luid, k=k):
-                # ^ params force early binding
-                debug("on_this_var_changed({},...)".format(args))
-                self.on_var_changed(luid, k, results['vs'][k])
-            var.trace_add('write', on_this_var_changed)
-            # var.trace_add(['write', 'unset'], default_callback)
-            # ^ In Python 2 it was trace('wu', ...)
-        debug("  - dict_to_widgets got {} widgets."
-              "".format(len(results['widgets'])))
-        for name, widget in results['widgets'].items():
-            widget.pack(side=tk.LEFT)
-            var = results['vs'][name]
-            self._vars_of_luid[luid][name] = var
-        frame.pack(fill=tk.X)
-        self.rows += 1
-
-    def _add_version_row(self, action):
-        '''
-        Sequential arguments:
-        action -- The action must be a version in the case of this
-            method, therefore the action dict must contain the keys as
-            returned by the anewcommit.new_version function. The value
-            for 'verb' must be 'get_version'
-        '''
-        # action keys: path, mode, verb, commit
-        # - where verb is 'get_version'
-        # - where mode is in MODES
-        if action.get('verb') is None:
-            raise ValueError("The verb is None")
-        elif action.get('verb') != 'get_version':
-            raise ValueError(
-                "The verb is {}, but only get_version is valid for"
-                "_add_version_row.".format(action.get('verb'))
+                "".format(anewcommit.TRANSITION_VERBS
+                          + anewcommit.VERSION_VERBS)
             )
         row = self.rows
-        path = action.get('path')
-        name = os.path.split(path)[1]
         frame = tk.Frame(self)
-        # label = ttk.Label(frame, text=name)
-        # label.grid(column=0, row=row, sticky=tk.E)
-        if path in self._id_of_path:
-            raise ValueError("The path already exists: {}"
-                             "".format(path))
-        luid = action['luid']
         self._frame_of_luid[luid] = frame
         self._vars_of_luid[luid] = {}
-        self._id_of_path[path] = luid
         button = ttk.Button(
             frame,
             text="+",
@@ -556,29 +514,17 @@ class MainFrame(ttk.Frame):
         )
         # button.grid(column=1, row=row, sticky=tk.W)
         button.pack(side=tk.LEFT, padx=(10, 0))
-        # remainingW = 1
-        # relx = 0
-        # relwidth = .5
-        # button.place(relx=relx, relwidth=relwidth, in_=frame, anchor=tk.W, relheight=1.0)
-        # relx += relwidth
-        # remainingW -= relwidth
 
-        options = {}
-        options['mode'] = anewcommit.MODES
-        debug("- version: {}".format(action))
         results = dict_to_widgets(
             action,
             frame,
-            template=version_template,
+            template=this_template,
         )
         for k, var in results['vs'].items():
             # self._key_of_name[var._name] = k
             # self._luid_of_name[var._name] = luid
             # self._var_of_name[var._name] = var
             # var.trace_add('write', lambda *args: self.on_var_changed(luid, k, results['vs'][k]))
-            # var.trace_add(['write', 'unset'], default_callback)
-            # ^ In Python 2 it was trace('wu', ...)
-
             # ^ always has same k due to late binding
             #   (See <https://stackoverflow.com/questions/3431676/
             #   creating-functions-in-a-loop>)
@@ -588,13 +534,12 @@ class MainFrame(ttk.Frame):
                 debug("on_this_var_changed({},...)".format(args))
                 self.on_var_changed(luid, k, results['vs'][k])
             var.trace_add('write', on_this_var_changed)
-
+            # var.trace_add(['write', 'unset'], default_callback)
+            # ^ In Python 2 it was trace('wu', ...)
         debug("  - dict_to_widgets got {} widgets."
               "".format(len(results['widgets'])))
         for name, widget in results['widgets'].items():
             widget.pack(side=tk.LEFT)
-            # widget.place(relx=relx, relwidth=relwidth, anchor=tk.W, relheight=.5, in_=frame)
-            # relx += relwidth
             var = results['vs'][name]
             self._vars_of_luid[luid][name] = var
         frame.pack(fill=tk.X)
@@ -635,10 +580,10 @@ class MainFrame(ttk.Frame):
     def add_transition_and_source(self, path):
         transition_action = self._project.add_transition('no_op')
         try:
-            self._add_transition_row(transition_action)
+            self._append_row(transition_action)
             version_action = self._project.add_version(path)
             try:
-                self._add_version_row(version_action)
+                self._append_row(version_action)
             except (ValueError, TypeError) as ex2:
                 if verbose:
                     raise ex2
