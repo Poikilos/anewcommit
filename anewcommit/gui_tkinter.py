@@ -56,6 +56,7 @@ from anewcommit import (
     is_truthy,
     debug,
     get_verbose,
+    set_verbose,
     profile,
 )
 
@@ -76,7 +77,7 @@ for mode in anewcommit.MODES:
 WIDGET_TYPES = ["Checkbutton", "OptionMenu", "Entry", "Label"]
 
 actions_field_order = ['commit', 'verb', 'mode', 'name']
-actions_captions = ['       ', 'Commit   ', 'Action']
+actions_captions = ['       ', ' ^    ', 'Action']
 transition_field_order = ['commit', 'verb', 'name']
 version_field_order = ['commit', 'mode', 'name']
 
@@ -164,15 +165,14 @@ def default_callback(*args, **kwargs):
         error("  {}".format(pair))
 
 
-def dict_to_widgets(d, parent, template=None):
+def dict_to_widgets(d, parent, template=None, no_warning_on_blank=False):
     '''
     Get a dict (results) where the key in results['widgets'][key] and
     in every other dict in the results dict is the corresponding key in
     dictionary d. The widgets will not be packed. The results also
     contains results['vs'] which has StringVar instances.
 
-    This method does NOT handle defaults. The data comes directly from
-    d.
+    This method does NOT handle defaults. The data comes directly from d.
 
     Sequential arguments:
     d -- This dictionary defines the set of widgets to use.
@@ -181,8 +181,8 @@ def dict_to_widgets(d, parent, template=None):
         platform-independent way. If the field isn't described, its type
         will determine its UI (such as Entry box for str and Checkbutton
         for bool).
-        - If a field in field_order isn't a key in d, add a blank
-          label and show a warning.
+    no_warning_on_blank -- If a field in field_order isn't a key in d, add a
+        blank label and show a warning unless no_warning_on_blank is True.
     '''
     if template is None:
         template = {}
@@ -221,11 +221,12 @@ def dict_to_widgets(d, parent, template=None):
     for k in field_order:
         widget_type = None
         if k not in d:
-            error(
-                "Warning: The key '{}' is missing but is in field_order"
-                " (action={}). A blank label will be added for spacing."
-                "".format(k, d)
-            )
+            if not no_warning_on_blank:
+                error(
+                    "Warning: The key '{}' is missing but is in field_order"
+                    " (action={}). A blank label will be added for spacing."
+                    "".format(k, d)
+                )
             v = ""
             widget_type = "Label"
         else:
@@ -279,11 +280,13 @@ def dict_to_widgets(d, parent, template=None):
             width_v = len(caption)
         elif not isinstance(width_v, str):
             width_v = str(width_v)
+        elif isinstance(width_v, str):
+            pass
         else:
             error("Warning: While determining width,"
                   " the text for '{}' is an unknown type: "
                   " \"{}\" is a {}."
-                  "".format(k, v, type(v).__name__))
+                  "".format(k, width_v, type(width_v).__name__))
 
         width = field_widths.get(k)
         if width is None:
@@ -428,7 +431,7 @@ class MainFrame(ttk.Frame):
         self.menu = menu
         self.parent.config(menu=menu)
         self.next_id = 0
-        self.panels = []
+        self._items = []
 
         fileMenu = tk.Menu(menu, tearoff=0)
         fileMenu.add_command(label="Open", command=self.ask_open)
@@ -437,7 +440,7 @@ class MainFrame(ttk.Frame):
 
         self.pack(fill=tk.BOTH, expand=True)
         # Doesn't work: padx=(10, 10), pady=(10, 10),
-        self.rows = 0
+        # self.row_count = 0
 
         self.wide_width = 30
 
@@ -457,6 +460,9 @@ class MainFrame(ttk.Frame):
         this method is private is that the action must also
         exist in self._project.actions at the same index so
         that the GUI and backend data match.
+        
+        The custom ".data" attribute of the row widget is set to "action".
+        
         Sequential arguments:
         action -- If the action is a version
             (action['verb'] is in anewcommit.VERSION_VERBS),
@@ -502,15 +508,17 @@ class MainFrame(ttk.Frame):
                 "".format(anewcommit.TRANSITION_VERBS
                           + anewcommit.VERSION_VERBS)
             )
-        row = self.rows
+        row = len(self._items)
+        debug("* adding row at {}".format(row))
         frame = tk.Frame(self)
+        frame.data = action
         self._frame_of_luid[luid] = frame
         self._vars_of_luid[luid] = {}
         button = ttk.Button(
             frame,
             text="+",
             width=2,
-            command=lambda: self.insert_before(luid),
+            command=lambda: self.insert_where(luid),
         )
         # button.grid(column=1, row=row, sticky=tk.W)
         button.pack(side=tk.LEFT, padx=(10, 0))
@@ -519,6 +527,7 @@ class MainFrame(ttk.Frame):
             action,
             frame,
             template=this_template,
+            no_warning_on_blank=True,
         )
         for k, var in results['vs'].items():
             # self._key_of_name[var._name] = k
@@ -543,9 +552,32 @@ class MainFrame(ttk.Frame):
             var = results['vs'][name]
             self._vars_of_luid[luid][name] = var
         frame.pack(fill=tk.X)
-        # expand=True: makes the row taller so rows fill the window
-        self.rows += 1
-        
+        # ^ must match the pack call in insert so layout is consistent
+        # ^ expand=True: makes the row taller so rows fill the window
+        self._items.append(frame)  # self.row_count += 1
+    
+    def _remove(self, index):
+        '''
+        Remove a panel at the given index. This action is private since the
+        item should also be removed from the backend list.
+        '''
+        self._items[index].pack_forget()
+        del self._items[index]
+
+    def remove_where(self, luid):
+        action = None
+        index = self._project._find_where('luid', luid)
+        i = self._find('luid', luid)
+        if i != index:
+            raise RuntimeError(
+                "The data and project are out of sync:"
+                " (actions[{}]['luid']={}, _items[{}].data['luid']={})"
+                "".format(index, luid, i, luid)
+            )
+        del self._projects.actions[index]
+        self._items[i].pack_forget()
+        del self._items[i]
+
     def _insert(self, index, action):
         '''
         Generate a new panel and insert it at the given index. This method
@@ -556,20 +588,69 @@ class MainFrame(ttk.Frame):
         index -- Insert the item here in the list view.
         action -- Insert this action dictionary.
         '''
-        raise NotImplementedError("NotYetImplemented: {}._insert('{}')"
-              "".format(type(self).__name__, index))
-  
-    def insert_before(self, luid):
+        more_items = []
+        count = 0
+        for i in range(index, len(self._items)):
+            count += 1
+            self._items[i].pack_forget()
+            more_items.append(self._items[i])
+        self._items = self._items[:index]
+        self._append_row(action)
+        # luid = action['luid']
+        # debug("* appended row {} luid {}".format(index, luid))
+        for i in range(len(more_items)):
+            item = more_items[i]
+            item.pack(fill=tk.X)
+            # debug("* dequeued luid {}".format(more_items[i].data['luid']))
+            self._items.append(item)
+            
+    
+    def _find(self, name, value):
+        for i in range(len(self._items)):
+            item = self._items[i]
+            # if item.data.get(name) == value:
+            if item.data[name] == value:
+                return i
+        return -1
+
+    def insert_where(self, luid):
+        index = self._project._find_where('luid', luid)
+        if index < 0:
+            msg = ("There is no luid {} in actions."
+                   "".format(luid))
+            messagebox.showerror("Error", msg)
+            raise ValueError(msg)
+        item_i = self._find('luid', luid)
+        if item_i < 0:
+            msg = ("There is no luid {} in items."
+                   "".format(luid))
+            messagebox.showerror("Error", msg)
+            raise ValueError(msg)
+        if item_i != index:
+            msg = ("The data and project are out of sync:"
+                   " (actions[{}]['luid']={}, _items[{}].data['luid']={})"
+                   "".format(index, luid, item_i, luid))
+            messagebox.showerror("Error", msg)
+            raise RuntimeError(msg)
         action = None
-        index = self._project._find_action(luid)
-        # old_action = self._project.get_action(luid)
-        old_action = self._project.actions[index]
-        if old_action['verb'] in anewcommit.VERSION_VERBS:
+        # next_action = self._project.get_action(luid)
+        next_action = self._project.actions[index]
+        next_is_ver = next_action['verb'] in anewcommit.VERSION_VERBS
+        '''
+        prev_is_ver = False
+        if index > 0:
+            prev_action = self._projects.actions[index-1]
+            prev_is_ver = prev_action['verb'] in anewcommit.VERSION_VERBS
+        '''
+        if next_is_ver or (item_i == 0):
             action = anewcommit.new_pre_process()
         else:
             action = anewcommit.new_post_process()
-        self._project.insert(index, action)
-        self._insert(index, action)
+        try:
+            luid = self._project.insert(index, action)
+            self._insert(item_i, action)
+        except ValueError as ex:
+            messagebox.showerror("Error", str(ex))
 
     def set_commit(self, luid, on):
         self._project.set_commit(luid, on)
@@ -578,9 +659,7 @@ class MainFrame(ttk.Frame):
         self._project.set_verb(luid, verb)
 
     def add_transition_and_source(self, path):
-        transition_action = self._project.add_transition('no_op')
         try:
-            self._append_row(transition_action)
             version_action = self._project.add_version(path)
             try:
                 self._append_row(version_action)
@@ -589,6 +668,8 @@ class MainFrame(ttk.Frame):
                     raise ex2
                 messagebox.showerror("Error", str(ex2))
                 return False
+            transition_action = self._project.add_transition('no_op')
+            self._append_row(transition_action)
         except (ValueError, TypeError) as ex:
             if verbose:
                 raise ex
@@ -619,7 +700,7 @@ class MainFrame(ttk.Frame):
             if not result:
                 break
             count += 1
-        error("Added {}".format(count))
+        debug("Added {}".format(count))
 
     def exitProgram(self):
         root.destroy()
@@ -694,9 +775,11 @@ def main():
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        test_case_dir = os.path.join(profile, "www.etc", "TCS", "VERSIONS")
+        # test_case_dir = os.path.join(profile, "www.etc", "TCS", "VERSIONS")
+        test_case_dir = os.path.join(profile, "tmp")
         if os.path.isdir(test_case_dir):
             sys.argv.append(test_case_dir)
+            set_verbose(True)
     main()
 
 

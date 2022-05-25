@@ -240,10 +240,9 @@ class ANCProject:
         self.actions.append(action)
         return action
 
-    def _find_action(self, luid):
+    def _find_where(self, name, value):
         for i in range(len(self.actions)):
-            action = self.actions[i]
-            if action['luid'] == luid:
+            if self.actions[i].get(name) == value:
                 return i
         return -1
 
@@ -260,25 +259,22 @@ class ANCProject:
             self.actions[index].luid).
         action -- Insert this action dictionary.
         '''
-        self.actions.append(None)
-        # for i in range(len(self.actions), -1, -1):  # ok but hard to read
-        for i in reversed(range(1, len(self.actions))):
-            if i >= index:
-                self.actions[i] = self.actions[i-1]
-            else:
-                break
-        self.actions[index] = action
+        
+        self.actions.insert(index, action)
 
-    def insert_before(self, luid, action):
+    def insert_where(self, name, value, action):
         '''
         Sequential arguments:
         luid -- Insert before this luid.
         action -- Insert this action dictionary.
         '''
-        newI = self._find_action(luid)
+        newI = self._find_where(name, value)
         if newI < 0:
-            raise ValueError("There is no luid {}".format(luid))
+            raise ValueError("There is no '{}' {}".format(name, value))
         self.insert(newI, action)
+
+    def insert_where_luid(self, luid, action):
+        self.insert_where(self, 'luid', luid, action)
 
     def set_commit(self, luid, on):
         action = self.get_action(luid)
