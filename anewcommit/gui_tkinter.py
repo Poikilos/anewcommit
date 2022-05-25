@@ -19,9 +19,10 @@ __metaclass__ = type
 #   error-typeerror-argument-1-must-be-type-not-classobj-when>
 import os
 import sys
-from decimal import Decimal
-import decimal
-import locale as lc
+# from decimal import Decimal
+# import decimal
+# import locale as lc
+import json
 import copy
 
 python_mr = sys.version_info[0]
@@ -81,7 +82,7 @@ WIDGET_TYPES = ["Checkbutton", "OptionMenu", "Entry", "Label"]
 
 actions_field_order = ['commit', 'verb', 'mode', 'name']
 actions_captions = ['       ', ' ^    ', 'Action']
-transition_field_order = ['commit', 'verb', 'name']
+transition_field_order = ['commit', 'verb', 'command']
 version_field_order = ['commit', 'mode', 'name']
 
 field_widths = {}
@@ -136,6 +137,10 @@ _transition_template_fields = {
     'commit': {
         'caption': '',
     },
+    'command': {
+        'widget': 'Entry',
+        'maxchars': 200,
+    },
 }
 
 transition_template = {
@@ -168,7 +173,7 @@ def default_callback(*args, **kwargs):
         error("  {}".format(pair))
 
 
-def dict_to_widgets(d, parent, template=None, no_warning_on_blank=False):
+def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
     '''
     Get a dict (results) where the key in results['widgets'][key] and
     in every other dict in the results dict is the corresponding key in
@@ -184,7 +189,7 @@ def dict_to_widgets(d, parent, template=None, no_warning_on_blank=False):
         platform-independent way. If the field isn't described, its type
         will determine its UI (such as Entry box for str and Checkbutton
         for bool).
-    no_warning_on_blank -- If a field in field_order isn't a key in d, add a
+    warning_on_blank -- If a field in field_order isn't a key in d, add a
         blank label and show a warning unless no_warning_on_blank is True.
     '''
     if template is None:
@@ -202,6 +207,7 @@ def dict_to_widgets(d, parent, template=None, no_warning_on_blank=False):
     '''
     field_order = template.get('field_order')
     field_widths = template.get('field_widths')
+    # ^ If not present, [k]['maxchars'] can be used.
     if field_widths is None:
         field_widths = {}
     all_done = {}
@@ -224,7 +230,7 @@ def dict_to_widgets(d, parent, template=None, no_warning_on_blank=False):
     for k in field_order:
         widget_type = None
         if k not in d:
-            if not no_warning_on_blank:
+            if warning_on_blank:
                 error(
                     "Warning: The key '{}' is missing but is in field_order"
                     " (action={}). A blank label will be added for spacing."
@@ -236,6 +242,7 @@ def dict_to_widgets(d, parent, template=None, no_warning_on_blank=False):
             v = d[k]
         spec = fields.get(k)
         if spec is None:
+            debug("  - {} has no spec. Deciding on a widget...".format(k))
             spec = {}
         widget = None
         expected_v = v
@@ -292,6 +299,8 @@ def dict_to_widgets(d, parent, template=None, no_warning_on_blank=False):
                   "".format(k, width_v, type(width_v).__name__))
 
         width = field_widths.get(k)
+        if width is None:
+            width = spec.get('maxchars')
         if width is None:
             width = len(width_v)
             if width < 1:
@@ -397,6 +406,7 @@ class MainFrame(ScrollableFrame):
     '''
     def __init__(self, parent, settings=None):
         all_settings = copy.deepcopy(ANCProject.default_settings)
+        self._added_title_row = False
         if settings is not None:
             # if is_truthy(settings.get('verbose')):
             #     # self.settings['verbose'] = True
@@ -456,8 +466,9 @@ class MainFrame(ScrollableFrame):
 
     def on_var_changed(self, luid, key, var):
         error("Warning: A callback wasn't specified to dict_to_widgets"
-              " (self type is {}, luid=\"{}\", key='{}', var.get()={})"
-              "".format(type(self).__name__, luid, key, var.get()))
+              " (self type is {}, luid={}, key={}, var.get()={})"
+              "".format(type(self).__name__, json.dumps(luid), json.dumps(key),
+                        json.dumps(var.get())))
 
     def _append_row(self, action):
         '''
@@ -532,7 +543,7 @@ class MainFrame(ScrollableFrame):
             action,
             frame,
             template=this_template,
-            no_warning_on_blank=True,
+            warning_on_blank=get_verbose(),
         )
         for k, var in results['vs'].items():
             # self._key_of_name[var._name] = k
@@ -561,10 +572,19 @@ class MainFrame(ScrollableFrame):
         # ^ expand=True: makes the row taller so rows fill the window
         self._items.append(frame)  # self.row_count += 1
     
+    def _clear(self, index):
+        '''
+        Remove all rows. This action is private since the items should also be
+        removed from the backend list.
+        '''
+        for i in range(len(self._items)):
+            self._items[i].pack_forget()
+        del self._items[:]
+    
     def _remove(self, index):
         '''
-        Remove a panel at the given index. This action is private since the
-        item should also be removed from the backend list.
+        Remove a row at the given index. This action is private since the item
+        should also be removed from the backend list.
         '''
         self._items[index].pack_forget()
         del self._items[index]
@@ -619,6 +639,10 @@ class MainFrame(ScrollableFrame):
         return -1
 
     def insert_where(self, luid):
+        '''
+        Insert an action at the index where luid matches.
+        Set action['commit'] to True.
+        '''
         index = self._project._find_where('luid', luid)
         if index < 0:
             msg = ("There is no luid {} in actions."
@@ -652,7 +676,7 @@ class MainFrame(ScrollableFrame):
         else:
             action = anewcommit.new_post_process()
         try:
-            luid = self._project.insert(index, action)
+            self._project.insert(index, action)
             self._insert(item_i, action)
         except ValueError as ex:
             messagebox.showerror("Error", str(ex))
@@ -662,32 +686,26 @@ class MainFrame(ScrollableFrame):
 
     def set_verb(self, luid, verb):
         self._project.set_verb(luid, verb)
-
-    def add_transition_and_source(self, path):
+    
+    def append_transition(self):
+        transition_action = self._project.add_transition('no_op')
+        self._append_row(transition_action)
+        
+    def append_source(self, path):
         try:
             version_action = self._project.add_version(path)
-            try:
-                self._append_row(version_action)
-            except (ValueError, TypeError) as ex2:
-                if verbose:
-                    raise ex2
-                messagebox.showerror("Error", str(ex2))
-                return False
-            transition_action = self._project.add_transition('no_op')
-            self._append_row(transition_action)
+            self._append_row(version_action)
         except (ValueError, TypeError) as ex:
             if verbose:
                 raise ex
             messagebox.showerror("Error", str(ex))
             return False
         return True
-
-    def add_versions_in(self, path):
-        if self._project is None:
-            self._project = ANCProject()
-            self._project.project_dir = path
-        count = 0
-
+        
+    def _init_title_row(self):
+        if self._added_title_row:
+            return
+        self._added_title_row = True
         frame = tk.Frame(self.scrollable_frame)
         for caption in actions_captions:
             widget = ttk.Label(
@@ -697,15 +715,36 @@ class MainFrame(ScrollableFrame):
             widget.pack(side=tk.LEFT)
         frame.pack(fill=tk.X)
 
+    def append_version(self, path):
+        return self.append_source(path)
+    
+    def load_project(self, path):
+        self._init_title_row()
+        self._clear()
+        self._project = ANCProject()
+        self._project.load(path)
+        for action in self._project.actions:
+            self._append_row(action)
+
+    def add_versions_in(self, path):
+        if self._project is None:
+            self._project = ANCProject()
+            self._project.project_dir = path
+        count = 0
+        self._init_title_row()
+        failPaths = []
         for sub in os.listdir(path):
             subPath = os.path.join(path, sub)
             if not os.path.isdir(subPath):
                 continue
-            result = self.add_transition_and_source(subPath)
+            result = self.append_version(subPath)
             if not result:
+                failPaths.append(subPath)
                 break
             count += 1
         debug("Added {}".format(count))
+        for failPath in failPaths:
+            debug('* failed to add {}'.format(failPath))
 
     def exitProgram(self):
         root.destroy()
@@ -765,7 +804,11 @@ def main():
 
     app = MainFrame(root, settings=settings)
     if versions_path is not None:
-        app.add_versions_in(sys.argv[1])
+        tryProject = os.path.join(versions_path, "anewcommit.json")
+        if os.path.isfile(tryProject):
+            app.load_project(tryProject)
+        else:
+            app.add_versions_in(sys.argv[1])
 
     root.mainloop()
     # (Urban & Murach, 2016, p. 515)

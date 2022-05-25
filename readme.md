@@ -4,21 +4,32 @@ https://github.com/poikilos/anewcommit
 Commit a series of source snapshots (where each may also contain
 snapshots of subprojects).
 
+## Features
+- Add versions as separate commits.
+- Add transitional commits for cleaner diffs.
 
-## Main Features
+## Usage
+- Click "+" to insert a process to make a copy of a version with the specified
+  change, as a system command (OS-dependent for now) in the entry box. The
+  changed copy will become a separate commit if the checkbox is checked.
+  - Choose "post-process" to make a copy of the previous version with the
+    change.
+  - Choose "pre-process" to make a copy of the next version with the change.
+
+## Planned Features
 - Split into "subprojects" and commit to separate repositories where
   configuration specifies how.
 
 
-## Configuration
+### Configuration
 Your subdirectory in conf.d can have the following files and
 directories.
 
-### project config
+#### project config
 - If a modpack and in modpack_repos, that will override
   mod-repos.json--for example, 3d_armor.
 
-#### settings.json
+##### settings.json
 If settings.json is present in conf.d/<project>, the settings will
 affect the entire snapshot process. For example:
 ```json
@@ -35,7 +46,7 @@ affect the entire snapshot process. For example:
 }
 ```
 
-### subproject configuration
+#### subproject configuration
 Use a file such as "conf.d/<project>/subsnaps/[.../]<subproject>.json"
 (where <project> is the project name of the set of snapshots and
 <subproject> is the name of a directory or archive):

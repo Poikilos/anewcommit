@@ -4,6 +4,7 @@ from __future__ import print_function
 import sys
 import os
 import platform
+import json
 
 verbose = False
 for argI in range(1, len(sys.argv)):
@@ -119,6 +120,7 @@ def _new_process(luid=None):
         'luid': luid,
         'verb': 'no_op',
         'commit': False,  # Change this to True if verb changes.
+        'command': ""
     }
 
 
@@ -208,6 +210,9 @@ class ANCProject:
     def __init__(self):
         self.project_dir = None
         self.actions = []
+        self.data = {
+            'actions': self.actions,
+        }
 
     def add_transition(self, verb):
         '''
@@ -251,6 +256,23 @@ class ANCProject:
         if i > -1:
             return self.actions[i]
         return None
+
+    def load(self, path):
+        with open(path, 'r') as ins:
+            self.data = json.load(ins)
+            self.path = path
+            self.actions = self.data['actions']
+            self.project_dir = self.data.get('project_dir')
+            if self.project_dir is None:
+                self.project_dir = os.path.dirname(path)
+    
+    def save(self):
+        if self.path is None:
+            if self.project_dir is None:
+                raise RuntimeError("The project dir or path must be set.")
+            self.path = os.path.join(self.project_dir, "anewcommit.json")
+        with open(self.path, 'wb') as outs:
+            json.dump(self.data, outs, indent=2, sort_keys=True)
     
     def insert(self, index, action):
         '''
@@ -259,7 +281,6 @@ class ANCProject:
             self.actions[index].luid).
         action -- Insert this action dictionary.
         '''
-        
         self.actions.insert(index, action)
 
     def insert_where(self, name, value, action):

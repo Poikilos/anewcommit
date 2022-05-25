@@ -16,15 +16,15 @@ import sys
 python_mr = sys.version_info[0]
 
 if python_mr >= 3:
-    from tkinter import messagebox
-    from tkinter import filedialog
+    # from tkinter import messagebox
+    # from tkinter import filedialog
     import tkinter as tk
     from tkinter import ttk
     # from tkinter import tix
 else:
     # Python 2
-    import tkMessageBox as messagebox
-    import tkFileDialog as filedialog
+    # import tkMessageBox as messagebox
+    # import tkFileDialog as filedialog
     import Tkinter as tk
     import ttk
     # import Tix as tix
