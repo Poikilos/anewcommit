@@ -24,13 +24,15 @@ import decimal
 import locale as lc
 import copy
 
-try:
+python_mr = sys.version_info[0]
+
+if python_mr >= 3:
     from tkinter import messagebox
     from tkinter import filedialog
     import tkinter as tk
     from tkinter import ttk
     # from tkinter import tix
-except ImportError:
+else:
     # Python 2
     import tkMessageBox as messagebox
     import tkFileDialog as filedialog
@@ -59,6 +61,7 @@ from anewcommit import (
     set_verbose,
     profile,
 )
+from anewcommit.scrollableframe import ScrollableFrame
 
 verbose = get_verbose()
 session = None
@@ -371,7 +374,7 @@ def dict_to_widgets(d, parent, template=None, no_warning_on_blank=False):
     return results
 
 
-class MainFrame(ttk.Frame):
+class MainFrame(ScrollableFrame):
     '''
     MainFrame loads, generates, or edits an anewcommit project.
 
@@ -406,7 +409,9 @@ class MainFrame(ttk.Frame):
 
         self._project = None
         self.parent = parent
-        ttk.Frame.__init__(self, parent, style='MainFrame.TFrame')
+        ScrollableFrame.__init__(self, parent, style='MainFrame.TFrame')
+        # ttk.Frame.__init__(self, parent, style='MainFrame.TFrame')
+        # ^ There seems to be no way to make it scrollable.
         # tix.ScrolledWindow.__init__(self, parent)
         # ^ _tkinter.TclError: invalid command name "tixScrolledWindow"
         #   if inherits from tix.ScrolledWindow (Python 2 or 3)
@@ -510,7 +515,7 @@ class MainFrame(ttk.Frame):
             )
         row = len(self._items)
         debug("* adding row at {}".format(row))
-        frame = tk.Frame(self)
+        frame = tk.Frame(self.scrollable_frame)
         frame.data = action
         self._frame_of_luid[luid] = frame
         self._vars_of_luid[luid] = {}
@@ -683,7 +688,7 @@ class MainFrame(ttk.Frame):
             self._project.project_dir = path
         count = 0
 
-        frame = tk.Frame(self)
+        frame = tk.Frame(self.scrollable_frame)
         for caption in actions_captions:
             widget = ttk.Label(
                 frame,
@@ -775,8 +780,8 @@ def main():
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        # test_case_dir = os.path.join(profile, "www.etc", "TCS", "VERSIONS")
-        test_case_dir = os.path.join(profile, "tmp")
+        test_case_dir = os.path.join(profile, "www.etc", "TCS", "VERSIONS")
+        # test_case_dir = os.path.join(profile, "tmp")
         if os.path.isdir(test_case_dir):
             sys.argv.append(test_case_dir)
             set_verbose(True)
