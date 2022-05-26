@@ -41,7 +41,7 @@ else:
     import ttk
     # import Tix as tix
 
-import math
+# import math
 
 myPath = os.path.realpath(__file__)
 myDir = os.path.dirname(myPath)
@@ -65,8 +65,6 @@ from anewcommit import (
 from anewcommit.scrollableframe import ScrollableFrame
 
 verbose = get_verbose()
-session = None
-playerIndex = 0
 
 verb_width = 1
 for verb in anewcommit.TRANSITION_VERBS:
@@ -347,20 +345,50 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
             # command=option_changed,
             results['vs'][k].set(v)
         elif widget_type == "Checkbutton":
-            results['vs'][k] = tk.IntVar()
+            on_value = True
+            off_value = False
+            if (v is None) or (v is False) or (v is True):
+                results['vs'][k] = tk.BooleanVar()
+            elif isinstance(v, int):
+                results['vs'][k] = tk.IntVar()
+                if v != 0:
+                    on_value = v
+                    off_value = 0
+                else:
+                    on_value = 1
+                    off_value = 0
+            elif isinstance(v, str):
+                results['vs'][k] = tk.StringVar()
+                if v != "":
+                    on_value = v
+                    off_value = 0
+                else:
+                    on_value = "checked"
+                    off_value = ""
+            else:
+                raise ValueError("Checkbutton var type {} isn't implemented."
+                                 "".format(type(v).__name__))
+            hard_default = off_value
             widget = ttk.Checkbutton(
                 parent,
                 text=caption,
                 width=width,
                 variable=results['vs'][k],
-                onvalue=1,
-                offvalue=0,
+                onvalue=on_value,
+                offvalue=off_value,
             )
             # indicatoron: If False, you must set your own visual
             #     instead of a check mark in the box.
-            results['vs'][k].set(1)
-            if (v is False) or (v == 0):
-                results['vs'][k].set(0)
+            results['vs'][k].set(hard_default)
+            if v is None:
+                results['vs'][k].set(False)
+            elif v is False:
+                results['vs'][k].set(False)
+            elif v is True:
+                results['vs'][k].set(True)
+            else:
+                results['vs'][k].set(v)
+            
         else:
             if widget_type is None:
                 raise ValueError(
@@ -465,10 +493,37 @@ class MainFrame(ScrollableFrame):
             self.add_versions_in(directory)
 
     def on_var_changed(self, luid, key, var):
-        error("Warning: A callback wasn't specified to dict_to_widgets"
-              " (self type is {}, luid={}, key={}, var.get()={})"
-              "".format(type(self).__name__, json.dumps(luid), json.dumps(key),
-                        json.dumps(var.get())))
+        debug("on_var_changed:")
+        dat_i = self._project._find_where('luid', luid)
+        if dat_i < 0:
+            raise RuntimeError(
+                "The data and project are out of sync:"
+                " There is no action with luid {}."
+                "".format(luid)
+            )
+        action = self._project.actions[dat_i]
+        new_v = var.get()
+        old_v = action[key]
+        if old_v is not None:
+            if type(old_v).__name__ != type(new_v).__name__:
+                raise RuntimeError(
+                    "key {} of luid {} was formerly {} {}"
+                    " but the new value is {} {}."
+                    "".format(key, luid,
+                              type(old_v).__name__, json.dumps(old_v),
+                              type(new_v).__name__, json.dumps(new_v))
+                )
+        if key in action:
+            action[key] = new_v
+        else:
+            ValueError(
+                "on_var_changed doesn't account for the unknown key"
+                " (self type is {}, luid={}, key={}, var.get()={})"
+                "".format(type(self).__name__, json.dumps(luid),
+                          json.dumps(key), json.dumps(var.get()))
+            )
+            # return False
+        return self._project.save()
 
     def _append_row(self, action):
         '''
@@ -557,7 +612,11 @@ class MainFrame(ScrollableFrame):
             def on_this_var_changed(*args, luid=luid, k=k):
                 # ^ params force early binding
                 debug("on_this_var_changed({},...)".format(args))
-                self.on_var_changed(luid, k, results['vs'][k])
+                try:
+                    self.on_var_changed(luid, k, results['vs'][k])
+                except Exception as ex:
+                    messagebox.showerror("Error", str(ex))
+                    raise ex
             var.trace_add('write', on_this_var_changed)
             # var.trace_add(['write', 'unset'], default_callback)
             # ^ In Python 2 it was trace('wu', ...)
@@ -572,7 +631,7 @@ class MainFrame(ScrollableFrame):
         # ^ expand=True: makes the row taller so rows fill the window
         self._items.append(frame)  # self.row_count += 1
     
-    def _clear(self, index):
+    def _clear(self):
         '''
         Remove all rows. This action is private since the items should also be
         removed from the backend list.
@@ -590,7 +649,6 @@ class MainFrame(ScrollableFrame):
         del self._items[index]
 
     def remove_where(self, luid):
-        action = None
         index = self._project._find_where('luid', luid)
         i = self._find('luid', luid)
         if i != index:
@@ -719,12 +777,25 @@ class MainFrame(ScrollableFrame):
         return self.append_source(path)
     
     def load_project(self, path):
+        if os.path.getsize(path) == 0:
+            os.remove(path)
+            return False
         self._init_title_row()
         self._clear()
         self._project = ANCProject()
-        self._project.load(path)
-        for action in self._project.actions:
-            self._append_row(action)
+        result, err = self._project.load(path)
+        if result:
+            for action in self._project.actions:
+                self._append_row(action)
+            return True
+        else:
+            messagebox.showerror(
+                "Error",
+                'The project file "{}" is incorrectly formatted and will be'
+                ' overwritten on the next change due to the following error:'
+                ' {}'.format(path, err)
+            )
+        return False
 
     def add_versions_in(self, path):
         if self._project is None:
@@ -755,9 +826,6 @@ def usage():
 
 
 def main():
-    # global session
-    # session = Session()
-
     global root
     root = tk.Tk()
     root.geometry("500x600")
@@ -805,20 +873,14 @@ def main():
     app = MainFrame(root, settings=settings)
     if versions_path is not None:
         tryProject = os.path.join(versions_path, "anewcommit.json")
+        loaded = False
         if os.path.isfile(tryProject):
-            app.load_project(tryProject)
-        else:
+            loaded = app.load_project(tryProject)
+        if not loaded:
             app.add_versions_in(sys.argv[1])
 
     root.mainloop()
     # (Urban & Murach, 2016, p. 515)
-    '''
-    session.stop()
-    if session.save():
-        error("Save completed.")
-    else:
-        error("Save failed.")
-    '''
 
 
 if __name__ == "__main__":

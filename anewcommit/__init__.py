@@ -202,12 +202,15 @@ class ANCProject:
     Public Properties:
     project_dir -- The metadata for the various version directories will
         be stored here.
+    path -- This is the explicit path to a project file, usually
+        "anewcommit.json" in project_dir.
     actions -- This is a list of actions to take, such as pre-processing
         or post-processing a version.
     '''
     default_settings = {}
 
     def __init__(self):
+        self.path = None
         self.project_dir = None
         self.actions = []
         self.data = {
@@ -259,20 +262,27 @@ class ANCProject:
 
     def load(self, path):
         with open(path, 'r') as ins:
-            self.data = json.load(ins)
-            self.path = path
-            self.actions = self.data['actions']
-            self.project_dir = self.data.get('project_dir')
-            if self.project_dir is None:
-                self.project_dir = os.path.dirname(path)
+            try:
+                self.data = json.load(ins)
+                self.path = path
+                self.actions = self.data['actions']
+                self.project_dir = self.data.get('project_dir')
+                if self.project_dir is None:
+                    self.project_dir = os.path.dirname(path)
+                return True, None
+            except json.JSONDecodeError as ex:
+                return False, str(ex)
+        return False, "unknown error"
     
     def save(self):
         if self.path is None:
             if self.project_dir is None:
                 raise RuntimeError("The project dir or path must be set.")
             self.path = os.path.join(self.project_dir, "anewcommit.json")
-        with open(self.path, 'wb') as outs:
+        with open(self.path, 'w') as outs:
             json.dump(self.data, outs, indent=2, sort_keys=True)
+        error('* wrote "{}"'.format(self.path))
+        return True
     
     def insert(self, index, action):
         '''
