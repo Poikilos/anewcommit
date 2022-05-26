@@ -94,13 +94,23 @@ MODES = [
     'overlay',
 ]
 
-last_luid = -1
+last_luid_i = -1
+used_luids = set()
+
+def use_luid(luid):
+    global last_luid_i
+    used_luids.add(luid)
+    luid_i = int(luid)  # saved as string, so convert to int
+    if luid_i > last_luid_i:
+        last_luid_i = luid_i
 
 
 def gen_luid():
-    global last_luid
-    last_luid += 1
-    return str(last_luid)
+    global last_luid_i
+    last_luid_i += 1
+    new_luid = str(last_luid_i)
+    used_luids.add(new_luid)
+    return new_luid
 
 
 def _new_process(luid=None):
@@ -260,20 +270,39 @@ class ANCProject:
             return self.actions[i]
         return None
 
+    def _use_all_luids(self):
+        bad_indices = []
+        for i in range(len(self.actions)):
+            action = self.actions[i]
+            if action['luid'] in used_luids:
+                bad_indices.append(i)
+            use_luid(action['luid'])
+        return bad_indices
+
     def load(self, path):
         with open(path, 'r') as ins:
             try:
                 self.data = json.load(ins)
                 self.path = path
                 self.actions = self.data['actions']
+                bad_indices = self._use_all_luids()
+                msg = None
+                for i in bad_indices:
+                    new_luid = gen_luid()
+                    if msg is None:
+                        msg = ""
+                    msg += ("* replacing duplicate luid in {}"
+                            " with {}"
+                            "".format(self.actions[i], new_luid))
+                    self.actions[i]['luid'] = new_luid
                 self.project_dir = self.data.get('project_dir')
                 if self.project_dir is None:
                     self.project_dir = os.path.dirname(path)
-                return True, None
+                return True, msg
             except json.JSONDecodeError as ex:
                 return False, str(ex)
         return False, "unknown error"
-    
+
     def save(self):
         if self.path is None:
             if self.project_dir is None:
@@ -283,8 +312,8 @@ class ANCProject:
             json.dump(self.data, outs, indent=2, sort_keys=True)
         error('* wrote "{}"'.format(self.path))
         return True
-    
-    def insert(self, index, action):
+
+    def insert(self, index, action, auto_save=True):
         '''
         Sequential arguments:
         index -- This is an index in self.actions (usually NOT the same as
@@ -292,6 +321,8 @@ class ANCProject:
         action -- Insert this action dictionary.
         '''
         self.actions.insert(index, action)
+        if auto_save:
+            self.save()
 
     def insert_where(self, name, value, action):
         '''

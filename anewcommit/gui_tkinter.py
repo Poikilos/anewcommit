@@ -388,7 +388,7 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
                 results['vs'][k].set(True)
             else:
                 results['vs'][k].set(v)
-            
+
         else:
             if widget_type is None:
                 raise ValueError(
@@ -493,7 +493,8 @@ class MainFrame(ScrollableFrame):
             self.add_versions_in(directory)
 
     def on_var_changed(self, luid, key, var):
-        debug("on_var_changed:")
+        debug("on_var_changed: {}'s {}={}"
+              "".format(luid, key, json.dumps(var.get())))
         dat_i = self._project._find_where('luid', luid)
         if dat_i < 0:
             raise RuntimeError(
@@ -531,9 +532,9 @@ class MainFrame(ScrollableFrame):
         this method is private is that the action must also
         exist in self._project.actions at the same index so
         that the GUI and backend data match.
-        
+
         The custom ".data" attribute of the row widget is set to "action".
-        
+
         Sequential arguments:
         action -- If the action is a version
             (action['verb'] is in anewcommit.VERSION_VERBS),
@@ -630,7 +631,7 @@ class MainFrame(ScrollableFrame):
         # ^ must match the pack call in insert so layout is consistent
         # ^ expand=True: makes the row taller so rows fill the window
         self._items.append(frame)  # self.row_count += 1
-    
+
     def _clear(self):
         '''
         Remove all rows. This action is private since the items should also be
@@ -639,7 +640,7 @@ class MainFrame(ScrollableFrame):
         for i in range(len(self._items)):
             self._items[i].pack_forget()
         del self._items[:]
-    
+
     def _remove(self, index):
         '''
         Remove a row at the given index. This action is private since the item
@@ -666,7 +667,7 @@ class MainFrame(ScrollableFrame):
         Generate a new panel and insert it at the given index. This method
         is private since the action must already exist at the same index in
         the self._project.actions list so that both lists match.
-        
+
         Sequential arguments:
         index -- Insert the item here in the list view.
         action -- Insert this action dictionary.
@@ -686,8 +687,8 @@ class MainFrame(ScrollableFrame):
             item.pack(fill=tk.X)
             # debug("* dequeued luid {}".format(more_items[i].data['luid']))
             self._items.append(item)
-            
-    
+
+
     def _find(self, name, value):
         for i in range(len(self._items)):
             item = self._items[i]
@@ -744,11 +745,11 @@ class MainFrame(ScrollableFrame):
 
     def set_verb(self, luid, verb):
         self._project.set_verb(luid, verb)
-    
+
     def append_transition(self):
         transition_action = self._project.add_transition('no_op')
         self._append_row(transition_action)
-        
+
     def append_source(self, path):
         try:
             version_action = self._project.add_version(path)
@@ -759,7 +760,7 @@ class MainFrame(ScrollableFrame):
             messagebox.showerror("Error", str(ex))
             return False
         return True
-        
+
     def _init_title_row(self):
         if self._added_title_row:
             return
@@ -775,7 +776,7 @@ class MainFrame(ScrollableFrame):
 
     def append_version(self, path):
         return self.append_source(path)
-    
+
     def load_project(self, path):
         if os.path.getsize(path) == 0:
             os.remove(path)
@@ -785,8 +786,22 @@ class MainFrame(ScrollableFrame):
         self._project = ANCProject()
         result, err = self._project.load(path)
         if result:
+            if err is not None:
+                # result is ok, but the file must have been repaired if msg
+                # is not None.
+                self._project.save()
+                messagebox.showerror(
+                    "Error",
+                    'The project file "{}" was incorrectly formatted'
+                    ' and repairs were attempted: \n{}'
+                    ''.format(self._project.path, err)
+                )
             for action in self._project.actions:
-                self._append_row(action)
+                try:
+                    self._append_row(action)
+                except TypeError as ex:
+                    error("action: {}".format(action))
+                    raise ex
             return True
         else:
             messagebox.showerror(
