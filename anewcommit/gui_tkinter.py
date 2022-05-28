@@ -12,7 +12,6 @@ Options:
 Examples:
 anewcommit .  # find versions in the current working directory.
 '''
-
 from __future__ import print_function
 __metaclass__ = type
 # ^ Fix <https://stackoverflow.com/questions/1713038/super-fails-with-
@@ -55,13 +54,20 @@ if os.path.isfile(tryInit):
 import anewcommit
 from anewcommit import (
     ANCProject,
-    error,
     is_truthy,
-    debug,
+    echo0,
+    echo1,
+    echo2,
     get_verbose,
     set_verbose,
     profile,
+    substep_to_str,
 )
+echos = []
+echos.append(echo0)
+echos.append(echo1)
+echos.append(echo2)
+
 from anewcommit.scrollableframe import ScrollableFrame
 
 verbose = get_verbose()
@@ -155,20 +161,23 @@ version_template = {
 }
 # ^ modified later to include lambdas calling class methods.
 
+_GUI_DUMP = []
+_BACKEND_DUMP = []
+
 
 def default_callback(*args, **kwargs):
     # sv.trace_add callback sends 3 sequential arguments:
     # - str such as "PY_VAR0" (var._name)
     # - str (blank for unknown reason)
     # - str such as "write" (or at end of program, "unset")
-    error("NotYetImplemented: default_callback")
+    echo0("NotYetImplemented: default_callback")
 
     for arg in args:
-        error('- {} "{}"'.format(type(arg).__name__, arg))
+        echo0('- {} "{}"'.format(type(arg).__name__, arg))
     for pair in kwargs.items():
         # k, v = pair
-        # error("  {}: {}".format(k, v))
-        error("  {}".format(pair))
+        # echo0("  {}: {}".format(k, v))
+        echo0("  {}".format(pair))
 
 
 def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
@@ -229,7 +238,7 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
         widget_type = None
         if k not in d:
             if warning_on_blank:
-                error(
+                echo0(
                     "Warning: The key '{}' is missing but is in field_order"
                     " (action={}). A blank label will be added for spacing."
                     "".format(k, d)
@@ -240,7 +249,7 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
             v = d[k]
         spec = fields.get(k)
         if spec is None:
-            debug("  - {} has no spec. Deciding on a widget...".format(k))
+            echo1("  - {} has no spec. Deciding on a widget...".format(k))
             spec = {}
         widget = None
         expected_v = v
@@ -252,7 +261,7 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
             if widget_type is None:
                 widget_type = 'OptionMenu'
 
-        debug("  - {} widget_type: {}"
+        echo2("  - {} widget_type: {}"  # such as commit widget_type: None
               "".format(k, widget_type))
         specified_widget = widget_type
         if widget_type is None:
@@ -263,13 +272,13 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
             elif isinstance(expected_v, bool):
                 widget_type = "Checkbutton"
             else:
-                debug("- Choosing a widget for {} (value {} type {},"
+                echo1("- Choosing a widget for {} (value {} type {},"
                       " expected a value like {} type {})"
                       " is not automated."
                       "".format(k, v, type(v).__name__,
                                 expected_v, type(expected_v).__name__))
         if specified_widget != widget_type:
-            debug("    - detected widget_type: {}"
+            echo2("    - detected widget_type: {}"
                   "".format(widget_type))
 
         caption = spec.get('caption')
@@ -291,7 +300,7 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
         elif isinstance(width_v, str):
             pass
         else:
-            error("Warning: While determining width,"
+            echo0("Warning: While determining width,"
                   " the text for '{}' is an unknown type: "
                   " \"{}\" is a {}."
                   "".format(k, width_v, type(width_v).__name__))
@@ -388,7 +397,6 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
                 results['vs'][k].set(True)
             else:
                 results['vs'][k].set(v)
-
         else:
             if widget_type is None:
                 raise ValueError(
@@ -465,21 +473,33 @@ class MainFrame(ScrollableFrame):
         #   via <https://stackoverflow.com/a/16639454>
 
         self._id_of_path = {}
+        self._index_of_path = {}
         self._vars_of_luid = {}
         self._frame_of_luid = {}
         self._key_of_name = {}
         self._luid_of_name = {}
         self._var_of_name = {}
-        menu = tk.Menu(self.parent)
-        self.menu = menu
-        self.parent.config(menu=menu)
+        self.menu = tk.Menu(self.parent)
+        self.parent.config(menu=self.menu)
         self.next_id = 0
         self._items = []
 
-        fileMenu = tk.Menu(menu, tearoff=0)
-        fileMenu.add_command(label="Open", command=self.ask_open)
-        fileMenu.add_command(label="Exit", command=self.exitProgram)
-        menu.add_cascade(label="File", menu=fileMenu)
+        self.fileMenu = tk.Menu(self.menu, tearoff=0)
+        self.fileMenu.add_command(label="Open", command=self.ask_open)
+        self.fileMenu.add_command(label="Exit", command=self.exitProgram)
+        self.menu.add_cascade(label="File", menu=self.fileMenu)
+
+        self.editMenu = tk.Menu(self.menu, tearoff=0)
+        self.editMenu.add_command(label="Undo", command=self.undo)
+        self.editMenu.add_command(label="Redo", command=self.redo)
+        # ^ add_command returns None :(
+        self.menu.add_cascade(label="Edit", menu=self.editMenu)
+        self.editMenu.entryconfig("Undo", state=tk.DISABLED)
+        self.editMenu.entryconfig("Redo", state=tk.DISABLED)
+
+        self.helpMenu = tk.Menu(self.menu, tearoff=0)
+        self.helpMenu.add_command(label="Dump to console", command=self.dump0)
+        self.menu.add_cascade(label="File", menu=self.helpMenu)
 
         self.pack(fill=tk.BOTH, expand=True)
         # Doesn't work: padx=(10, 10), pady=(10, 10),
@@ -493,7 +513,7 @@ class MainFrame(ScrollableFrame):
             self.add_versions_in(directory)
 
     def on_var_changed(self, luid, key, var):
-        debug("on_var_changed: {}'s {}={}"
+        echo1("on_var_changed: {}'s {}={}"
               "".format(luid, key, json.dumps(var.get())))
         dat_i = self._project._find_where('luid', luid)
         if dat_i < 0:
@@ -502,7 +522,7 @@ class MainFrame(ScrollableFrame):
                 " There is no action with luid {}."
                 "".format(luid)
             )
-        action = self._project.actions[dat_i]
+        action = self._project._actions[dat_i]
         new_v = var.get()
         old_v = action[key]
         if old_v is not None:
@@ -516,6 +536,7 @@ class MainFrame(ScrollableFrame):
                 )
         if key in action:
             action[key] = new_v
+            # TODO: Add an undo step but not for every character typed.
         else:
             ValueError(
                 "on_var_changed doesn't account for the unknown key"
@@ -530,7 +551,7 @@ class MainFrame(ScrollableFrame):
         '''
         Add an action to the end of the list view. The reason
         this method is private is that the action must also
-        exist in self._project.actions at the same index so
+        exist in self._project._actions at the same index so
         that the GUI and backend data match.
 
         The custom ".data" attribute of the row widget is set to "action".
@@ -556,32 +577,34 @@ class MainFrame(ScrollableFrame):
         options = {}
         path = None
         name = None
+        row = len(self._items)
         if action.get('verb') is None:
             raise ValueError("The verb is None")
         elif action.get('verb') in anewcommit.TRANSITION_VERBS:
             this_template = transition_template
             options['verb'] = anewcommit.TRANSITION_VERBS
-            debug("- transition: {}".format(action))
+            echo1("- transition: {}".format(action))
         elif action.get('verb') in anewcommit.VERSION_VERBS:
             this_template = version_template
             options['mode'] = anewcommit.MODES
-            debug("- version: {}".format(action))
+            echo1("- version: {}".format(action))
             path = action.get('path')
             # name = None
             # if path is not None:
             name = os.path.split(path)[1]
             if path in self._id_of_path:
-                raise ValueError("The path already exists: {}"
-                                 "".format(path))
+                raise ValueError("Path [{}] already exists at {}: {}"
+                                 "".format(row, self._index_of_path[path],
+                                           path))
             self._id_of_path[path] = luid
+            self._index_of_path[path] = row
         else:
             raise ValueError(
                 "The verb must be: {}"
                 "".format(anewcommit.TRANSITION_VERBS
                           + anewcommit.VERSION_VERBS)
             )
-        row = len(self._items)
-        debug("* adding row at {}".format(row))
+        echo1("* adding row at {}".format(row))
         frame = tk.Frame(self.scrollable_frame)
         frame.data = action
         self._frame_of_luid[luid] = frame
@@ -591,6 +614,14 @@ class MainFrame(ScrollableFrame):
             text="+",
             width=2,
             command=lambda: self.insert_where(luid),
+        )
+        # button.grid(column=1, row=row, sticky=tk.W)
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        button = ttk.Button(
+            frame,
+            text="-",
+            width=2,
+            command=lambda: self.remove_where(luid),
         )
         # button.grid(column=1, row=row, sticky=tk.W)
         button.pack(side=tk.LEFT, padx=(10, 0))
@@ -612,7 +643,7 @@ class MainFrame(ScrollableFrame):
             #   So force early binding:
             def on_this_var_changed(*args, luid=luid, k=k):
                 # ^ params force early binding
-                debug("on_this_var_changed({},...)".format(args))
+                echo2("on_this_var_changed({},...)".format(args))
                 try:
                     self.on_var_changed(luid, k, results['vs'][k])
                 except Exception as ex:
@@ -621,7 +652,7 @@ class MainFrame(ScrollableFrame):
             var.trace_add('write', on_this_var_changed)
             # var.trace_add(['write', 'unset'], default_callback)
             # ^ In Python 2 it was trace('wu', ...)
-        debug("  - dict_to_widgets got {} widgets."
+        echo2("  - dict_to_widgets got {} widgets."
               "".format(len(results['widgets'])))
         for name, widget in results['widgets'].items():
             widget.pack(side=tk.LEFT)
@@ -632,41 +663,157 @@ class MainFrame(ScrollableFrame):
         # ^ expand=True: makes the row taller so rows fill the window
         self._items.append(frame)  # self.row_count += 1
 
+    def update_undo(self):
+        if self._project.has_undo():
+            self.editMenu.entryconfig("Undo", state=tk.NORMAL)
+        else:
+            echo1("no undo (step_i={}, len={})"
+                  "".format(self._project._undo_step_i,
+                            len(self._project._undo_steps)))
+            self.editMenu.entryconfig("Undo", state=tk.DISABLED)
+
+        if self._project.has_redo():
+            self.editMenu.entryconfig("Redo", state=tk.NORMAL)
+        else:
+            echo1("no redo (step_i={}, len={})"
+                  "".format(self._project._undo_step_i,
+                            len(self._project._undo_steps)))
+            self.editMenu.entryconfig("Redo", state=tk.DISABLED)
+
+    def undo(self):
+        try:
+            self._undo()
+        except ValueError as ex:
+            msg = str(ex)
+            messagebox.showerror("Error", msg)
+
+    def redo(self):
+        try:
+            self._undo(redo=True)
+        except ValueError as ex:
+            msg = str(ex)
+            messagebox.showerror("Error", msg)
+
+    def _undo(self, redo=False):
+        echo1()
+        echo1()
+        echo1()
+        do_s = "undo"
+        if redo:
+            do_s = "redo"
+        echo1("_undo_step_i: {}".format(self._project._undo_step_i))
+        echo1("_undo_steps:")
+        for step in self._project._undo_steps:
+            echo1("-")
+            for ss in step:
+                name = substep_to_str(ss)
+                echo1("  - {}".format(name))
+        results = None
+        err = None
+        echo1("* calling _project.undo")
+        results, err = self._project.undo(redo=redo)
+        title = "Warning"
+        if results is None:
+            title = "Error"
+        else:
+            offset = len(results['added']) - len(results['removed'])
+            indices = results['added'] + results['removed']
+            if len(indices) < 1:
+                if err is not None:
+                    messagebox.showwarning("Warning (no rows affected)", err)
+                else:
+                    messagebox.showwarning("Warning", "No rows were affected.")
+                return
+            min_index = len(self._items) - 1
+            for index in indices:
+                if index < min_index:
+                    min_index = index
+            # start_index = min_index - offset
+            old_len = len(self._items)
+            # self.dump2()
+            echo1("  len: {}".format(old_len))
+            for index in reversed(range(min_index, old_len)):
+                path = self.path_of_index(index)
+                echo2("  * removing [{}] {} after {}".format(index, path, do_s))
+                self._remove(index)
+            # self.dump2()
+
+            for index in range(min_index, len(self._project._actions)):
+                echo2("  * re-adding [{}] after {}".format(index, do_s))
+                self._append_row(self._project._actions[index])
+
+        if err is not None:
+            messagebox.showerror(title, err)
+        self.update_undo()
+
     def _clear(self):
         '''
-        Remove all rows. This action is private since the items should also be
-        removed from the backend list.
+        Remove all rows. This action is private since the items must also be
+        removed from the backend data.
         '''
         for i in range(len(self._items)):
             self._items[i].pack_forget()
         del self._items[:]
+        self._id_of_path = {}
+        self._index_of_path = {}
+
+    def path_of_index(self, index):
+        for path, tryIndex in self._index_of_path.items():
+            if tryIndex == index:
+                return path
+        return None
 
     def _remove(self, index):
         '''
         Remove a row at the given index. This action is private since the item
         should also be removed from the backend list.
         '''
+        path = self.path_of_index(index)
+        if path is None:
+            echo1("  * index {} has no path record in the GUI (ok if not version)."
+                  "".format(index))
+        else:
+            del self._id_of_path[path]
+            del self._index_of_path[path]
         self._items[index].pack_forget()
         del self._items[index]
+        # Remember to change _index_of_path starting at index
+        # even if this one doesn't have a path:
+        for i in range(index, len(self._items)):
+            path = self._items[i].data.get('path')
+            if path is not None:
+                self._index_of_path[path] = i
 
     def remove_where(self, luid):
         index = self._project._find_where('luid', luid)
         i = self._find('luid', luid)
+        echo1("* removing [{}] luid {} at {}".format(i, luid, index))
         if i != index:
             raise RuntimeError(
-                "The data and project are out of sync:"
+                "The visual data and backend project are out of sync:"
                 " (actions[{}]['luid']={}, _items[{}].data['luid']={})"
                 "".format(index, luid, i, luid)
             )
-        del self._projects.actions[index]
-        self._items[i].pack_forget()
-        del self._items[i]
+        path = self._items[i].data.get('path')
+        if path is not None:
+            old_luid = self._id_of_path[path]
+            if old_luid != luid:
+                raise RuntimeError(
+                    "The visual row data & row button are out of sync:"
+                    " (actions[{}]['luid']={},"
+                    " _items[{}].data['luid']={})"
+                    "".format(index, luid, i, luid)
+                )
+        self._project.remove(index)
+        self.update_undo()
+        self._remove(i)
 
     def _insert(self, index, action):
         '''
-        Generate a new panel and insert it at the given index. This method
-        is private since the action must already exist at the same index in
-        the self._project.actions list so that both lists match.
+        Generate a new panel and insert it at the given index. This
+        method is private since the action must already exist at the
+        same index in the self._project._actions list so that both
+        lists match.
 
         Sequential arguments:
         index -- Insert the item here in the list view.
@@ -676,18 +823,52 @@ class MainFrame(ScrollableFrame):
         count = 0
         for i in range(index, len(self._items)):
             count += 1
+            # path = self.path_of_index(i)
             self._items[i].pack_forget()
             more_items.append(self._items[i])
-        self._items = self._items[:index]
+        # self._items = self._items[:index]
+        old_len = len(self._items)
+        tmp_id_of_path = {}
+        for i in reversed(range(index, old_len)):
+            # Do them individually so _index_of_path and _id_of_path update.
+            path = self.path_of_index(i)
+            if path is not None:
+                luid = self._id_of_path[path]
+                tmp_id_of_path[path] = luid
+            self._remove(i)
         self._append_row(action)
+        # ^ handles: self._id_of_path[path], self._index_of_path[path]
+        #   (Don't modify other entries since removed rows will be re-added
+        #   immediately below)
         # luid = action['luid']
-        # debug("* appended row {} luid {}".format(index, luid))
+        # echo1("* appended row {} luid {}".format(index, luid))
+        tmp_index_of_path = {}
         for i in range(len(more_items)):
             item = more_items[i]
+            path = item.data.get('path')
+            row = len(self._items)
+            if path is not None:
+                tmp_index_of_path[path] = row
             item.pack(fill=tk.X)
-            # debug("* dequeued luid {}".format(more_items[i].data['luid']))
+            # echo1("* dequeued luid {}".format(more_items[i].data['luid']))
             self._items.append(item)
-
+        for path, luid in tmp_id_of_path.items():
+            # name = os.path.split(path)[1]
+            row = tmp_index_of_path[path]
+            if path in self._id_of_path:
+                raise ValueError("Path [{}] already exists for id {}: {}"
+                                 "".format(row, self._id_of_path[path],
+                                           path))
+            if path in self._index_of_path:
+                raise ValueError("Path [{}] already exists at {}: {}"
+                                 "".format(row, self._index_of_path[path],
+                                           path))
+            self._id_of_path[path] = luid
+            self._index_of_path[path] = row
+            old_luid = self._items[row].data['luid']
+            if old_luid != luid:
+                raise ValueError("Path [{}] luid {} should be {}"
+                                 "".format(row, luid, old_luid))
 
     def _find(self, name, value):
         for i in range(len(self._items)):
@@ -699,8 +880,8 @@ class MainFrame(ScrollableFrame):
 
     def insert_where(self, luid):
         '''
-        Insert an action at the index where luid matches.
-        Set action['commit'] to True.
+        Insert an action into the backend data and the UI at the index where
+        luid matches. Set action['commit'] to True.
         '''
         index = self._project._find_where('luid', luid)
         if index < 0:
@@ -722,12 +903,12 @@ class MainFrame(ScrollableFrame):
             raise RuntimeError(msg)
         action = None
         # next_action = self._project.get_action(luid)
-        next_action = self._project.actions[index]
+        next_action = self._project._actions[index]
         next_is_ver = next_action['verb'] in anewcommit.VERSION_VERBS
         '''
         prev_is_ver = False
         if index > 0:
-            prev_action = self._projects.actions[index-1]
+            prev_action = self._project._actions[index-1]
             prev_is_ver = prev_action['verb'] in anewcommit.VERSION_VERBS
         '''
         if next_is_ver or (item_i == 0):
@@ -736,6 +917,7 @@ class MainFrame(ScrollableFrame):
             action = anewcommit.new_post_process()
         try:
             self._project.insert(index, action)
+            self.update_undo()
             self._insert(item_i, action)
         except ValueError as ex:
             messagebox.showerror("Error", str(ex))
@@ -748,11 +930,13 @@ class MainFrame(ScrollableFrame):
 
     def append_transition(self):
         transition_action = self._project.add_transition('no_op')
+        self.update_undo()
         self._append_row(transition_action)
 
     def append_source(self, path):
         try:
             version_action = self._project.add_version(path)
+            self.update_undo()
             self._append_row(version_action)
         except (ValueError, TypeError) as ex:
             if verbose:
@@ -786,6 +970,7 @@ class MainFrame(ScrollableFrame):
         self._project = ANCProject()
         result, err = self._project.load(path)
         if result:
+            self.update_undo()
             if err is not None:
                 # result is ok, but the file must have been repaired if msg
                 # is not None.
@@ -796,12 +981,14 @@ class MainFrame(ScrollableFrame):
                     ' and repairs were attempted: \n{}'
                     ''.format(self._project.path, err)
                 )
-            for action in self._project.actions:
+            for action in self._project._actions:
                 try:
                     self._append_row(action)
-                except TypeError as ex:
-                    error("action: {}".format(action))
-                    raise ex
+                except (ValueError, TypeError) as ex:
+                    msg = str(ex)
+                    echo0("action: {}".format(action))
+                    messagebox.showerror("Error", msg)
+            self.dump1()
             return True
         else:
             messagebox.showerror(
@@ -812,10 +999,78 @@ class MainFrame(ScrollableFrame):
             )
         return False
 
+    def dump(self, level):
+        global _GUI_DUMP
+        global _BACKEND_DUMP
+        '''
+        Sequential arguments:
+        level -- Set what level of verbosity this dump affects.
+        '''
+        echos[level]("DUMP len: {}".format(len(self._items)))
+        _GUI_DUMP = []
+        for i in range(len(self._items)):
+            path = self._items[i].data.get('path')
+            _GUI_DUMP.append(self._items[i].data.get('luid'))
+            name = path
+            if path is not None:
+                name = os.path.split(path)[1]
+            echos[level]("- data of widget [{}]: path~={}"
+                         "".format(i, name))
+            path = self.path_of_index(i)
+            name = path
+            if path is not None:
+                name = os.path.split(path)[1]
+            echos[level]("  - path~={}".format(name))
+            if path is not None:
+                index = self._index_of_path[path]
+                echos[level]("  - index {}".format(index))
+
+        for path, index in self._index_of_path.items():
+            name = path
+            if path is not None:
+                name = os.path.split(path)[1]
+            echos[level]("* index [{}] = {}"
+                  "".format(name, index))
+        for path, luid in self._id_of_path.items():
+            name = path
+            if path is not None:
+                name = os.path.split(path)[1]
+            echos[level]("* luid for [{}] = {}"
+                  "".format(name, luid))
+
+        echos[level](
+            "BACKEND data len: {}"
+            "".format(len(self._project._actions))
+        )
+        _BACKEND_DUMP = []
+        for index in range(0, len(self._project._actions)):
+            path = self._project._actions[index].get('path')
+            name = path
+            luid = self._project._actions[index].get('luid')
+            _BACKEND_DUMP.append(luid)
+            known_luid = self._id_of_path.get(path)
+            i = self._index_of_path.get(path)
+            if path is not None:
+                name = os.path.split(path)[1]
+            echos[level]("* item for [{}] id {} (known as {}) at {} = {}"
+                         "".format(index, luid, known_luid, i, name))
+
+    def dump0(self):
+        self.dump(0)
+
+    def dump1(self):
+        self.dump(1)
+
+    def dump2(self):
+        self.dump(2)
+
     def add_versions_in(self, path):
         if self._project is None:
             self._project = ANCProject()
-            self._project.project_dir = path
+        else:
+            self._project.clear()
+            self.update_undo()
+        self._project.project_dir = path
         count = 0
         self._init_title_row()
         failPaths = []
@@ -828,16 +1083,17 @@ class MainFrame(ScrollableFrame):
                 failPaths.append(subPath)
                 break
             count += 1
-        debug("Added {}".format(count))
+        echo1("Added {}".format(count))
         for failPath in failPaths:
-            debug('* failed to add {}'.format(failPath))
+            echo1('* failed to add {}'.format(failPath))
+        self.dump1()
 
     def exitProgram(self):
         root.destroy()
 
 
 def usage():
-    error(__doc__)
+    echo0(__doc__)
 
 
 def main():
@@ -869,8 +1125,8 @@ def main():
     global verbose
     if is_truthy(settings.get('verbose')):
         verbose = True
-        error("* enabled verbose logging to standard error")
-    debug("versions_path: {}".format(versions_path))
+        echo0("* enabled verbose logging to standard error")
+    echo1("versions_path: {}".format(versions_path))
     style = ttk.Style(root)
     preferred_themes = ['winnative', 'aqua', 'alt']
     # aqua: Darwin
@@ -882,8 +1138,8 @@ def main():
             style.theme_use(prefer_theme)
             break
     if verbose:
-        error("* available ttk themes: {}".format(style.theme_names()))
-        error("* current theme: {}".format(style.theme_use()))
+        echo0("* available ttk themes: {}".format(style.theme_names()))
+        echo0("* current theme: {}".format(style.theme_use()))
 
     app = MainFrame(root, settings=settings)
     if versions_path is not None:

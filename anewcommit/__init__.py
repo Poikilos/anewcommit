@@ -16,15 +16,19 @@ for argI in range(1, len(sys.argv)):
             verbose = True
 
 
-def error(*args, **kwargs):
+def echo0(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
-def debug(*args, **kwargs):
+def echo1(*args, **kwargs):
     if not verbose:
         return
     print(*args, file=sys.stderr, **kwargs)
 
+def echo2(*args, **kwargs):
+    if verbose < 2:
+        return
+    print(*args, file=sys.stderr, **kwargs)
 
 def get_verbose():
     return verbose
@@ -177,7 +181,7 @@ def new_version(path, mode='delete_then_add', luid=None, name=None):
 
 def new_pre_process(luid=None):
     '''
-    A pre-process verb affects the next version in the list of actions.
+    A pre-process verb affects the next version in the list of _actions.
 
     Keyword arguments:
     luid -- If None, generate a LUID. See _new_process for more info.
@@ -193,7 +197,7 @@ def new_pre_process(luid=None):
 def new_post_process(luid=None):
     '''
     A post-process action affects the previous version in the list of
-    actions. For example, renaming directories or files as a separate
+    _actions. For example, renaming directories or files as a separate
     commit may make committing the next version more clean.
 
     Keyword arguments:
@@ -205,6 +209,17 @@ def new_post_process(luid=None):
     return action
 
 
+def substep_to_str(ss):
+    name = None
+    if len(ss) > 2 and isinstance(ss[1], int):
+        name = ss[2].get('path')
+    else:
+        name = str(ss)
+    if name is not None:
+        name = os.path.split(name)[1]
+    return name
+
+
 class ANCProject:
     '''
     Manage a list of version directories.
@@ -214,7 +229,7 @@ class ANCProject:
         be stored here.
     path -- This is the explicit path to a project file, usually
         "anewcommit.json" in project_dir.
-    actions -- This is a list of actions to take, such as pre-processing
+    _actions -- This is a list of _actions to take, such as pre-processing
         or post-processing a version.
     '''
     default_settings = {}
@@ -222,10 +237,106 @@ class ANCProject:
     def __init__(self):
         self.path = None
         self.project_dir = None
-        self.actions = []
+        self._actions = []
+        self._undo_steps = []
+        self._undo_step_i = -1
+        self.remove_redo = False  # Remove redo after undo.
         self.data = {
-            'actions': self.actions,
+            'actions': self._actions,
         }
+        self.auto_save = True
+
+    def clear(self):
+        self.clear_undo()
+        del self._actions[:]
+        # self.data['actions'] = self._actions
+        # TODO: if self.auto_save: self.save()
+
+    def has_undo(self):
+        if len(self._undo_steps) < 1:
+            return False
+        return self._undo_step_i >= 0
+
+    def has_redo(self):
+        return self._undo_step_i+1 < len(self._undo_steps)
+
+    def _add_undo_step(self, step):
+        '''
+        Add a dictionary that describes how to undo what was just done.
+        '''
+        step_i = self._undo_step_i
+        if self.remove_redo:
+            if len(self._undo_steps) > (self._undo_step_i+1):
+                self._undo_steps = self._undo_steps[:self._undo_step_i+1]
+        if self._undo_step_i == (len(self._undo_steps)-1):
+            self._undo_steps.append(step)
+            self._undo_step_i += 1
+        elif self._undo_step_i < (len(self._undo_steps)-1):
+            self._undo_steps.insert(self._undo_step_i+1, step)
+            self._undo_step_i += 1
+        else:
+            return False, ("The undo step[{}]={} is not within range (len={})"
+                           "".format(self._undo_step_i,
+                                     self._undo_steps[self._undo_step_i],
+                                     len(self._undo_steps)))
+        echo1("* _add_undo_step({}) at {}".format(step, step_i))
+        msg = None
+        if not self.has_undo():
+            msg = ("There is no undo after adding an undo step at {}"
+                   "".format(step_i))
+            echo0("  * "+msg)
+        return True, msg
+
+    def undo(self, redo=False):
+        '''
+        A substep
+        is a command in the form of a list, and a step is a list of
+        lists (commands).
+        '''
+        results = {}
+        results['added'] = []
+        results['removed'] = []
+        do_s = "redo" if redo else "undo"
+        step_i = self._undo_step_i
+        if redo:
+            step_i += 1
+            if step_i >= len(self._undo_steps):
+                return None, "There is nothing to {}.".format(do_s)
+        if step_i < 0:
+            return None, "There is nothing to {}.".format(do_s)
+        step = self._undo_steps[step_i]
+        echo1("  * {} step: {}".format(do_s, step))
+        redo_step = []
+        for ss in step:
+            redo_ss = None
+            if ss[0] == "remove":
+                redo_ss = self.remove(ss[1], add_undo_step=False)
+                results['removed'].append(ss[1])
+            elif ss[0] == "insert":
+                redo_ss = self.insert(ss[1], ss[2], add_undo_step=False)
+                results['added'].append(ss[1])
+            else:
+                return results, ("Error: {} {} isn't implemented."
+                                 "".format(do_s, ss))
+            if redo_ss is not None:
+                redo_step.append(redo_ss)
+        if redo:
+            self._undo_steps[self._undo_step_i] = redo_step
+            self._undo_step_i += 1
+        else:
+            self._undo_steps[self._undo_step_i] = redo_step
+            echo1("- Added redo_step:")
+            for ss in redo_step:
+                echo1("  - {}".format(substep_to_str(ss)))
+            # ^ Add a redo step only during undo.
+            self._undo_step_i -= 1
+        return results, None
+
+    def append_action(self, action):
+        self._actions.append(action)
+        self._add_undo_step([
+            ['remove', len(self._actions)-1],
+        ])
 
     def add_transition(self, verb):
         '''
@@ -245,7 +356,7 @@ class ANCProject:
                 "The verb is unknown: {}"
                 "".format(verb)
             )
-        self.actions.append(action)
+        self.append_action(action)
         return action
 
     def add_version(self, path, mode='delete_then_add'):
@@ -255,25 +366,25 @@ class ANCProject:
         '''
         action = new_version(path, mode=mode)
         # ^ new_version raises ValueError if the mode is invalid.
-        self.actions.append(action)
+        self.append_action(action)
         return action
 
     def _find_where(self, name, value):
-        for i in range(len(self.actions)):
-            if self.actions[i].get(name) == value:
+        for i in range(len(self._actions)):
+            if self._actions[i].get(name) == value:
                 return i
         return -1
 
     def get_action(self, luid):
         i = self._find_action(luid)
         if i > -1:
-            return self.actions[i]
+            return self._actions[i]
         return None
 
     def _use_all_luids(self):
         bad_indices = []
-        for i in range(len(self.actions)):
-            action = self.actions[i]
+        for i in range(len(self._actions)):
+            action = self._actions[i]
             if action['luid'] in used_luids:
                 bad_indices.append(i)
             use_luid(action['luid'])
@@ -284,7 +395,7 @@ class ANCProject:
             try:
                 self.data = json.load(ins)
                 self.path = path
-                self.actions = self.data['actions']
+                self._actions = self.data['actions']
                 bad_indices = self._use_all_luids()
                 msg = None
                 for i in bad_indices:
@@ -293,8 +404,8 @@ class ANCProject:
                         msg = ""
                     msg += ("* replacing duplicate luid in {}"
                             " with {}"
-                            "".format(self.actions[i], new_luid))
-                    self.actions[i]['luid'] = new_luid
+                            "".format(self._actions[i], new_luid))
+                    self._actions[i]['luid'] = new_luid
                 self.project_dir = self.data.get('project_dir')
                 if self.project_dir is None:
                     self.project_dir = os.path.dirname(path)
@@ -310,19 +421,48 @@ class ANCProject:
             self.path = os.path.join(self.project_dir, "anewcommit.json")
         with open(self.path, 'w') as outs:
             json.dump(self.data, outs, indent=2, sort_keys=True)
-        error('* wrote "{}"'.format(self.path))
+        echo0('* wrote "{}"'.format(self.path))
         return True
 
-    def insert(self, index, action, auto_save=True):
+    def remove(self, index, add_undo_step=True):
+        action = self._actions.pop(index)
+        echo1("* removed [{}]: {}".format(index, action))
+        echo1("  len {}".format(len(self._actions)))
+        if self.auto_save:
+            self.save()
+        undo_substep = [
+            'insert',
+            index,
+            action,
+        ]
+        if add_undo_step:
+            self._add_undo_step([undo_substep])
+        return undo_substep
+
+    def insert(self, index, action, add_undo_step=True):
         '''
         Sequential arguments:
-        index -- This is an index in self.actions (usually NOT the same as
-            self.actions[index].luid).
+        index -- This is an index in self._actions (usually NOT the same as
+            self._actions[index].luid).
         action -- Insert this action dictionary.
+
+        Returns:
+        an undo substep which can be appended to a step. A substep
+        is a command in the form of a list, and a step is a list of
+        lists (commands).
         '''
-        self.actions.insert(index, action)
-        if auto_save:
+        self._actions.insert(index, action)
+        echo1("* inserted [{}]: {}".format(index, action))
+        echo1("  len {}".format(len(self._actions)))
+        undo_substep = [
+            'remove',
+            index
+        ]
+        if add_undo_step:
+            self._add_undo_step([undo_substep])
+        if self.auto_save:
             self.save()
+        return undo_substep
 
     def insert_where(self, name, value, action):
         '''
@@ -333,14 +473,27 @@ class ANCProject:
         newI = self._find_where(name, value)
         if newI < 0:
             raise ValueError("There is no '{}' {}".format(name, value))
-        self.insert(newI, action)
+        return self.insert(newI, action)
 
     def insert_where_luid(self, luid, action):
-        self.insert_where(self, 'luid', luid, action)
+        return self.insert_where(self, 'luid', luid, action)
+
+    def remove_where(self, name, value):
+        '''
+        Sequential arguments:
+        luid -- Insert before this luid.
+        '''
+        newI = self._find_where(name, value)
+        if newI < 0:
+            raise ValueError("There is no '{}' {}".format(name, value))
+        return self.remove(newI)
+
+    def remove_where_luid(self, luid):
+        return self.remove_where('luid', luid)
 
     def set_commit(self, luid, on):
         action = self.get_action(luid)
-        error("NotYetImplemented: set_commit('{}', {})"
+        echo0("NotYetImplemented: set_commit('{}', {})"
               "".format(luid, on))
 
     def set_verb(self, luid, verb):
@@ -353,7 +506,7 @@ class ANCProject:
                 "The action parameters aren't same as for other TRANSITION_VERBS."
                 "".format(current_verb)
             )
-        error("NotYetImplemented: set_verb('{}', {})"
+        echo0("NotYetImplemented: set_verb('{}', {})"
               "".format(luid, verb))
 
     def to_dict(self):
@@ -368,5 +521,5 @@ def main():
 
 
 if __name__ == "__main__":
-    error("Import this module into your program to use it.")
+    echo0("Import this module into your program to use it.")
     main()
