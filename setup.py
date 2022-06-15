@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import setuptools
 import sys
+import os
 # - For the example on which this was based, see
 #   https://github.com/poikilos/linux-preinstall/blob/main/setup.py
 #   which is based on

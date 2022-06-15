@@ -47,7 +47,11 @@ myDir = os.path.dirname(myPath)
 tryRepoDir = os.path.dirname(myDir)
 
 tryInit = os.path.join(tryRepoDir, "anewcommit", "__init__.py")
+
 if os.path.isfile(tryInit):
+    sys.stderr.write("The module will run from the repo: {}\n"
+                     "".format(tryRepoDir))
+    sys.stderr.flush()
     # Ensure the repo version is used if running from the repo.
     sys.path.insert(0, tryRepoDir)
 
@@ -62,13 +66,15 @@ from anewcommit import (
     set_verbose,
     profile,
     substep_to_str,
+    s2or3,
 )
+
 echos = []
 echos.append(echo0)
 echos.append(echo1)
 echos.append(echo2)
 
-from anewcommit.scrollableframe import ScrollableFrame
+from anewcommit.scrollableframe import SFContainer
 
 verbose = get_verbose()
 
@@ -246,7 +252,7 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
             v = ""
             widget_type = "Label"
         else:
-            v = d[k]
+            v = s2or3(d[k])
         spec = fields.get(k)
         if spec is None:
             echo1("  - {} has no spec. Deciding on a widget...".format(k))
@@ -254,15 +260,19 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
         widget = None
         expected_v = v
         if widget_type is None:
-            widget_type = spec.get('widget')
+            widget_type = s2or3(spec.get('widget'))
         if 'values' in spec:
-            expected_v = spec['values']
+            expected_v = s2or3(spec['values'])
             # ^ It must be a list (See OptionMenu case below).
+            if python_mr < 3:
+                for evI in range(len(expected_v)):
+                    expected_v[evI] = s2or3(expected_v[evI])
             if widget_type is None:
                 widget_type = 'OptionMenu'
 
-        echo2("  - {} widget_type: {}"  # such as commit widget_type: None
-              "".format(k, widget_type))
+        echo2("  - {} widget_type: {} {}"  # such as commit widget_type: None
+              "".format(k, type(widget_type).__name__,
+                        json.dumps(widget_type)))
         specified_widget = widget_type
         if widget_type is None:
             if (expected_v is None) or (isinstance(expected_v, str)):
@@ -272,16 +282,17 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
             elif isinstance(expected_v, bool):
                 widget_type = "Checkbutton"
             else:
-                echo1("- Choosing a widget for {} (value {} type {},"
-                      " expected a value like {} type {})"
+                echo1("- Choosing a widget for {} ({} {},"
+                      " expected a value like {} {})"
                       " is not automated."
-                      "".format(k, v, type(v).__name__,
-                                expected_v, type(expected_v).__name__))
+                      "".format(k, type(v).__name__, json.dumps(v),
+                                type(expected_v).__name__,
+                                json.dumps(expected_v)))
         if specified_widget != widget_type:
             echo2("    - detected widget_type: {}"
                   "".format(widget_type))
 
-        caption = spec.get('caption')
+        caption = s2or3(spec.get('caption'))
         width_v = v
         if caption is None:
             caption = k
@@ -411,15 +422,16 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
             else:
                 raise ValueError(
                     " template['fields']['{}']['widget']"
-                    " is {} but should be one of: {}"
-                    "".format(k, widget_type, WIDGET_TYPES)
+                    " is {} {} but should be a str matching: {}"
+                    "".format(k, type(widget_type).__name__,
+                              widget_type, WIDGET_TYPES)
                 )
         results['widgets'][k] = widget
 
     return results
 
 
-class MainFrame(ScrollableFrame):
+class MainFrame(SFContainer):
     '''
     MainFrame loads, generates, or edits an anewcommit project.
 
@@ -455,9 +467,9 @@ class MainFrame(ScrollableFrame):
 
         self._project = None
         self.parent = parent
-        ScrollableFrame.__init__(self, parent, style='MainFrame.TFrame')
+        SFContainer.__init__(self, parent, style='MainFrame.TFrame')
         # ttk.Frame.__init__(self, parent, style='MainFrame.TFrame')
-        # ^ There seems to be no way to make it scrollable.
+        # ^ There seems to be no way to make a Frame scrollable.
         # tix.ScrolledWindow.__init__(self, parent)
         # ^ _tkinter.TclError: invalid command name "tixScrolledWindow"
         #   if inherits from tix.ScrolledWindow (Python 2 or 3)
@@ -513,7 +525,7 @@ class MainFrame(ScrollableFrame):
             self.add_versions_in(directory)
 
     def on_var_changed(self, luid, key, var):
-        echo1("on_var_changed: {}'s {}={}"
+        echo1("on_var_changed: {}'s {} = {}"
               "".format(luid, key, json.dumps(var.get())))
         dat_i = self._project._find_where('luid', luid)
         if dat_i < 0:
@@ -527,7 +539,7 @@ class MainFrame(ScrollableFrame):
         old_v = action[key]
         if old_v is not None:
             if type(old_v).__name__ != type(new_v).__name__:
-                raise RuntimeError(
+                raise TypeError(
                     "key {} of luid {} was formerly {} {}"
                     " but the new value is {} {}."
                     "".format(key, luid,
@@ -554,7 +566,8 @@ class MainFrame(ScrollableFrame):
         exist in self._project._actions at the same index so
         that the GUI and backend data match.
 
-        The custom ".data" attribute of the row widget is set to "action".
+        The custom ".data" attribute of the row widget is set to
+        "action".
 
         Sequential arguments:
         action -- If the action is a version
@@ -593,9 +606,10 @@ class MainFrame(ScrollableFrame):
             # if path is not None:
             name = os.path.split(path)[1]
             if path in self._id_of_path:
-                raise ValueError("Path [{}] already exists at {}: {}"
-                                 "".format(row, self._index_of_path[path],
-                                           path))
+                raise ValueError(
+                    "Path [{}] already exists at {}: {}"
+                    "".format(row, self._index_of_path[path], path)
+                )
             self._id_of_path[path] = luid
             self._index_of_path[path] = row
         else:
@@ -641,15 +655,56 @@ class MainFrame(ScrollableFrame):
             #   (See <https://stackoverflow.com/questions/3431676/
             #   creating-functions-in-a-loop>)
             #   So force early binding:
-            def on_this_var_changed(*args, luid=luid, k=k):
-                # ^ params force early binding
-                echo2("on_this_var_changed({},...)".format(args))
-                try:
-                    self.on_var_changed(luid, k, results['vs'][k])
-                except Exception as ex:
-                    messagebox.showerror("Error", str(ex))
-                    raise ex
-            var.trace_add('write', on_this_var_changed)
+            if python_mr > 2:
+                # def on_this_var_changed(*args): #, luid=luid, k=k):
+                def on_this_var_changed(tkVarID, param, event, luid=luid, k=k):
+                    # ^ params force early binding (they come from
+                    #   the outer scope, not the call)
+                    # echo2("on_this_var_changed({},...)".format(args))
+                    echo2("on_this_var_changed({},{},{},luid={},k={})"
+                          "".format(tkVarID, param, event, luid, k))
+                    try:
+                        self.on_var_changed(luid, k, results['vs'][k])
+                    except TypeError as ex:
+                        messagebox.showerror("var_changed TypeError",
+                                             str(ex))
+                        # NOTE: type(ex).__name__ is always "Error"
+                        raise ex
+                    except ValueError as ex:
+                        messagebox.showerror("var_changed ValueError",
+                                             str(ex))
+                        # NOTE: type(ex).__name__ is always "Error"
+                        raise ex
+            else:
+                # def on_this_var_changed(*args, luid=luid, k=k):
+                # ^ invalid syntax on Python 2 (See
+                #   <https://stackoverflow.com/a/22436114/4541104>.
+                #   Only Python 3 can put explicit keywords after `*args`).
+                def on_this_var_changed(tkVarID, param, event, luid=luid, k=k):
+                    '''
+                    Params force early binding (they come from
+                    the outer scope, not the call).
+
+                    Sequential arguments:
+                    tkVarID -- a string such as PY_VAR23
+                    param -- unknown meaning, usually ''
+                    event -- an event name (such as 'w' in Python2)
+                    '''
+                    # echo2("on_this_var_changed({},...)".format(args))
+                    echo2("on_this_var_changed({},{},{},luid={},k={})"
+                          "".format(tkVarID, param, event, luid, k))
+                    try:
+                        self.on_var_changed(luid, k, results['vs'][k])
+                    except TypeError as ex:
+                        messagebox.showerror("var_changed TypeError", str(ex))
+                        raise ex
+                    except ValueError as ex:
+                        messagebox.showerror("var_changed ValueError", str(ex))
+                        raise ex
+            if python_mr >= 3:
+                var.trace_add('write', on_this_var_changed)
+            else:
+                var.trace('wu', on_this_var_changed)
             # var.trace_add(['write', 'unset'], default_callback)
             # ^ In Python 2 it was trace('wu', ...)
         echo2("  - dict_to_widgets got {} widgets."
@@ -1109,7 +1164,11 @@ def main():
         arg = sys.argv[argi]
         if arg.startswith("--"):
             option_name = arg[2:]
-            if arg in bool_names:
+            if arg == "--verbose":
+                set_verbose(1)
+            elif arg == "--debug":
+                set_verbose(2)
+            elif arg in bool_names:
                 settings[option_name] = True
             else:
                 usage()
@@ -1148,7 +1207,7 @@ def main():
         if os.path.isfile(tryProject):
             loaded = app.load_project(tryProject)
         if not loaded:
-            app.add_versions_in(sys.argv[1])
+            app.add_versions_in(versions_path)
 
     root.mainloop()
     # (Urban & Murach, 2016, p. 515)

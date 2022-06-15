@@ -6,14 +6,16 @@ import os
 import platform
 import json
 
-verbose = False
+python_mr = sys.version_info[0]
+
+verbose = 0
 for argI in range(1, len(sys.argv)):
     arg = sys.argv[argI]
     if arg.startswith("--"):
-        if arg == "--debug":
-            verbose = True
-        elif arg == "--verbose":
-            verbose = True
+        if arg == "--verbose":
+            verbose = 1
+        elif arg == "--debug":
+            verbose = 2
 
 
 def echo0(*args, **kwargs):
@@ -25,10 +27,21 @@ def echo1(*args, **kwargs):
         return
     print(*args, file=sys.stderr, **kwargs)
 
+
 def echo2(*args, **kwargs):
     if verbose < 2:
         return
     print(*args, file=sys.stderr, **kwargs)
+
+
+def s2or3(s):
+    if python_mr < 3:
+        if type(s).__name__ == "unicode":
+            # ^ such as a string returned by json.load*
+            #   using Python 2
+            return str(s)
+    return s
+
 
 def get_verbose():
     return verbose
@@ -36,15 +49,22 @@ def get_verbose():
 
 def set_verbose(enable_verbose):
     global verbose
-    if (enable_verbose is not True) and (enable_verbose is not False):
+    max_verbose = 3
+    verbosities = list(range(max_verbose+1))
+    if enable_verbose is True:
+        enable_verbose = 1
+    elif enable_verbose is False:
+        enable_verbose = 0
+    if enable_verbose not in verbosities:
         vMsg = enable_verbose
         if isinstance(vMsg, str):
             vMsg = '"{}"'.format(vMsg)
         raise ValueError(
-            "enable_verbose must be True or False not {}."
-            "".format(vMsg)
+            "enable_verbose must be 0 to {} not {}."
+            "".format(max_verbose, vMsg)
         )
     verbose = enable_verbose
+
 
 profile = os.environ.get('HOME')
 if platform.system() == "Windows":
@@ -100,6 +120,7 @@ MODES = [
 
 last_luid_i = -1
 used_luids = set()
+
 
 def use_luid(luid):
     global last_luid_i
@@ -238,13 +259,16 @@ class ANCProject:
         self.path = None
         self.project_dir = None
         self._actions = []
-        self._undo_steps = []
-        self._undo_step_i = -1
         self.remove_redo = False  # Remove redo after undo.
+        self.clear_undo()
         self.data = {
             'actions': self._actions,
         }
         self.auto_save = True
+
+    def clear_undo(self):
+        self._undo_steps = []
+        self._undo_step_i = -1
 
     def clear(self):
         self.clear_undo()
@@ -396,6 +420,9 @@ class ANCProject:
                 self.data = json.load(ins)
                 self.path = path
                 self._actions = self.data['actions']
+                for action in self._actions:
+                    for k,v in action.items():
+                        action[k] = s2or3(v)
                 bad_indices = self._use_all_luids()
                 msg = None
                 for i in bad_indices:
@@ -410,7 +437,9 @@ class ANCProject:
                 if self.project_dir is None:
                     self.project_dir = os.path.dirname(path)
                 return True, msg
-            except json.JSONDecodeError as ex:
+            except ValueError as ex:  # Python 2 JSON decode error
+                return False, str(ex)
+            except json.JSONDecodeError as ex:  # Python 3
                 return False, str(ex)
         return False, "unknown error"
 
@@ -503,7 +532,8 @@ class ANCProject:
         if current_verb in VERSION_VERBS:
             raise ValueError(
                 "The verb is {} so it can't change."
-                "The action parameters aren't same as for other TRANSITION_VERBS."
+                "The action parameters aren't same as for other"
+                " TRANSITION_VERBS."
                 "".format(current_verb)
             )
         echo0("NotYetImplemented: set_verb('{}', {})"
