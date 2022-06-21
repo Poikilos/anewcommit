@@ -40,10 +40,43 @@ else:
     import ttk
     # import Tix as tix
 
+# region same as rotocanvas imageprocessorx
+dephelp = '''sudo apt-get install python3-pil python3-pil.imagetk
+# or in a virtualenv:
+#   pip install Pillow
+'''
+
+try:
+    import PIL
+    from PIL import Image
+except ModuleNotFoundError as ex:
+    print("{}".format(ex))
+    print()
+    print("You must install ImageTk such as via:")
+    print(dephelp)
+    print()
+    sys.exit(1)
+
+try:
+    from PIL import ImageTk  # Place this at the end (to avoid any conflicts/errors)
+except ImportError as ex:
+    print("{}".format(ex))
+    print()
+    print("You must install ImageTk such as via:")
+    print(dephelp)
+    print()
+    sys.exit(1)
+# endregion same as rotocanvas imageprocessorx
+
 # import math
 
 myPath = os.path.realpath(__file__)
 myDir = os.path.dirname(myPath)
+staticDir = os.path.join(myDir, "static")
+imagesDir = os.path.join(staticDir, "images")
+downArrowPath = os.path.join(imagesDir, "arrow-down.png")
+upArrowPath = os.path.join(imagesDir, "arrow-up.png")
+arrow_paths = [upArrowPath, downArrowPath]
 tryRepoDir = os.path.dirname(myDir)
 
 tryInit = os.path.join(tryRepoDir, "anewcommit", "__init__.py")
@@ -623,6 +656,28 @@ class MainFrame(SFContainer):
         frame.data = action
         self._frame_of_luid[luid] = frame
         self._vars_of_luid[luid] = {}
+        arrows_frame = ttk.Frame(
+            frame,
+        )
+        arrows_frame.pack(side=tk.LEFT)
+        arrow_c = "^"
+        for arrow_path in arrow_paths:
+            if not os.path.isfile(arrow_path):
+                raise FileNotFoundError(arrow_path)
+            # See <https://www.pythontutorial.net/tkinter/tkinter-label/>
+            # arrow_image = tk.PhotoImage(file=arrow_path)
+            # ^ doesn't work, so (based on rotocanvas):
+            arrow_image = ImageTk.PhotoImage(Image.open(arrow_path))
+            arrow_label = ttk.Label(
+                arrows_frame,
+                image=arrow_image,
+                # compound='image',
+                text=arrow_c
+            )
+            # arrow_label['image'] = arrow_image
+            arrow_label.pack(side=tk.TOP)
+            arrow_c = "v"
+
         button = ttk.Button(
             frame,
             text="+",
