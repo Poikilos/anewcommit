@@ -232,7 +232,7 @@ def new_post_process(luid=None):
 
 def substep_to_str(ss):
     name = None
-    if len(ss) > 2 and isinstance(ss[1], int):
+    if (len(ss) > 2) and (len(ss) < 3) and isinstance(ss[1], int):
         name = ss[2].get('path')
     else:
         name = str(ss)
@@ -316,10 +316,15 @@ class ANCProject:
         A substep
         is a command in the form of a list, and a step is a list of
         lists (commands).
+
+        Returns:
+        a list of luids that were affected.
         '''
         results = {}
         results['added'] = []
         results['removed'] = []
+        results['swapped'] = []
+        results['swapped_luids'] = []
         do_s = "redo" if redo else "undo"
         step_i = self._undo_step_i
         if redo:
@@ -339,6 +344,14 @@ class ANCProject:
             elif ss[0] == "insert":
                 redo_ss = self.insert(ss[1], ss[2], add_undo_step=False)
                 results['added'].append(ss[1])
+            elif ss[0] == "swap":
+                redo_ss = self.swap(ss[1], ss[2], add_undo_step=False)
+                results['swapped'].append(ss[1])
+                results['swapped'].append(ss[2])
+            elif ss[0] == "swap_where_luid":
+                redo_ss = self.swap(ss[1], ss[2], add_undo_step=False)
+                results['swapped_luids'].append(ss[1])
+                results['swapped_luids'].append(ss[2])
             else:
                 return results, ("Error: {} {} isn't implemented."
                                  "".format(do_s, ss))
@@ -450,7 +463,7 @@ class ANCProject:
             self.path = os.path.join(self.project_dir, "anewcommit.json")
         with open(self.path, 'w') as outs:
             json.dump(self.data, outs, indent=2, sort_keys=True)
-        echo0('* wrote "{}"'.format(self.path))
+        echo1('* wrote "{}"'.format(self.path))
         return True
 
     def remove(self, index, add_undo_step=True):
@@ -460,7 +473,7 @@ class ANCProject:
         if self.auto_save:
             self.save()
         undo_substep = [
-            'insert',
+            "insert",
             index,
             action,
         ]
@@ -475,6 +488,11 @@ class ANCProject:
             self._actions[index].luid).
         action -- Insert this action dictionary.
 
+        Keyword arguments:
+        add_undo_step -- This should only be False if an undo/redo is doing the
+            step, or there is some particular internal reason not to record a
+            step.
+
         Returns:
         an undo substep which can be appended to a step. A substep
         is a command in the form of a list, and a step is a list of
@@ -484,7 +502,7 @@ class ANCProject:
         echo1("* inserted [{}]: {}".format(index, action))
         echo1("  len {}".format(len(self._actions)))
         undo_substep = [
-            'remove',
+            "remove",
             index
         ]
         if add_undo_step:
@@ -492,6 +510,55 @@ class ANCProject:
         if self.auto_save:
             self.save()
         return undo_substep
+
+    def swap(self, index, other_index, add_undo_step=True):
+        '''
+        Keyword arguments:
+        add_undo_step -- This should only be False if an undo/redo is doing the
+            step, or there is some particular internal reason not to record a
+            step.
+        '''
+        tmp_action = self._actions[index]
+        self._actions[index] = self._actions[other_index]
+        self._actions[other_index] = tmp_action
+        undo_substep = [
+            "swap",
+            index,
+            other_index,
+        ]
+        if add_undo_step:
+            self._add_undo_step([undo_substep])
+        if self.auto_save:
+            self.save()
+        return undo_substep
+
+    def swap_where_luid(self, luid, other_luid, add_undo_step=True):
+        '''
+        Keyword arguments:
+        add_undo_step -- This should only be False if an undo/redo is doing the
+            step, or there is some particular internal reason not to record a
+            step.
+        '''
+        index = self._find_where('luid', luid)
+        other_index = self._find_where('luid', other_luid)
+        if index < 0:
+            raise ValueError("There is no '{}' {}".format('luid', luid))
+        if other_index < 0:
+            raise ValueError("There is no '{}' {}".format('luid', other_luid))
+
+        tmp_action = self._actions[index]
+        self._actions[index] = self._actions[other_index]
+        self._actions[other_index] = tmp_action
+        undo_substep = [
+            "swap_where_luid",
+            luid,
+            other_luid,
+        ]
+        if add_undo_step:
+            self._add_undo_step([undo_substep])
+        if self.auto_save:
+            self.save()
+
 
     def insert_where(self, name, value, action):
         '''

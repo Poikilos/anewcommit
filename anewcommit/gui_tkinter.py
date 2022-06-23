@@ -40,12 +40,13 @@ else:
     import ttk
     # import Tix as tix
 
+"""
 # region same as rotocanvas imageprocessorx
 dephelp = '''sudo apt-get install python3-pil python3-pil.imagetk
 # or in a virtualenv:
 #   pip install Pillow
 '''
-
+enable_png = True
 try:
     import PIL
     from PIL import Image
@@ -55,7 +56,8 @@ except ModuleNotFoundError as ex:
     print("You must install ImageTk such as via:")
     print(dephelp)
     print()
-    sys.exit(1)
+    enable_png = False
+    # sys.exit(1)
 
 try:
     from PIL import ImageTk  # Place this at the end (to avoid any conflicts/errors)
@@ -65,18 +67,22 @@ except ImportError as ex:
     print("You must install ImageTk such as via:")
     print(dephelp)
     print()
-    sys.exit(1)
+    enable_png = False
+    # sys.exit(1)
 # endregion same as rotocanvas imageprocessorx
-
+"""
 # import math
 
 myPath = os.path.realpath(__file__)
 myDir = os.path.dirname(myPath)
 staticDir = os.path.join(myDir, "static")
 imagesDir = os.path.join(staticDir, "images")
-downArrowPath = os.path.join(imagesDir, "arrow-down.png")
-upArrowPath = os.path.join(imagesDir, "arrow-up.png")
+# downArrowPath = os.path.join(imagesDir, "arrow-down.png")
+# upArrowPath = os.path.join(imagesDir, "arrow-up.png")
+downArrowPath = os.path.join(imagesDir, "arrow-down.gif")
+upArrowPath = os.path.join(imagesDir, "arrow-up.gif")
 arrow_paths = [upArrowPath, downArrowPath]
+
 tryRepoDir = os.path.dirname(myDir)
 
 tryInit = os.path.join(tryRepoDir, "anewcommit", "__init__.py")
@@ -552,6 +558,18 @@ class MainFrame(SFContainer):
 
         self.wide_width = 30
 
+        self.arrow_images = []
+        for arrow_path in arrow_paths:
+            if not os.path.isfile(arrow_path):
+                raise FileNotFoundError(arrow_path)
+            else:
+                print("loading {}".format(arrow_path))
+            # See <https://www.pythontutorial.net/tkinter/tkinter-label/>
+            arrow_image = tk.PhotoImage(file=arrow_path)
+            # ^ doesn't work for png, so (based on rotocanvas):
+            # arrow_image = ImageTk.PhotoImage(Image.open(arrow_path))
+            self.arrow_images.append(arrow_image)
+
     def ask_open(self):
         directory = filedialog.askdirectory()
         if directory is not None:
@@ -661,22 +679,30 @@ class MainFrame(SFContainer):
         )
         arrows_frame.pack(side=tk.LEFT)
         arrow_c = "^"
-        for arrow_path in arrow_paths:
-            if not os.path.isfile(arrow_path):
-                raise FileNotFoundError(arrow_path)
-            # See <https://www.pythontutorial.net/tkinter/tkinter-label/>
-            # arrow_image = tk.PhotoImage(file=arrow_path)
-            # ^ doesn't work, so (based on rotocanvas):
-            arrow_image = ImageTk.PhotoImage(Image.open(arrow_path))
+        # arrow_f = self.move_up_where
+        direction = -1
+        for arrow_image in self.arrow_images:
             arrow_label = ttk.Label(
                 arrows_frame,
                 image=arrow_image,
+                # command=lambda: arrow_f(luid),
                 # compound='image',
-                text=arrow_c
+                # text=arrow_c,
             )
+            # arrow_label.bind("<Button-1>", lambda e: arrow_f(e, luid))
+            arrow_label.bind(
+                "<Button-1>",
+                lambda e, y=direction: self.move_1(luid, y),
+            )
+            # ^ recieve event, but only send luid!
+            # ^ y=direction forces early binding (otherwise always sends 1)
             # arrow_label['image'] = arrow_image
             arrow_label.pack(side=tk.TOP)
             arrow_c = "v"
+            # arrow_f = self.move_down_where
+            # ^ doesn't work due to late binding (both buttons go down),
+            #   so use move_1 instead
+            direction = 1
 
         button = ttk.Button(
             frame,
@@ -828,6 +854,8 @@ class MainFrame(SFContainer):
         else:
             offset = len(results['added']) - len(results['removed'])
             indices = results['added'] + results['removed']
+            indices += results['swapped']
+            indices += results['swapped_luids']
             if len(indices) < 1:
                 if err is not None:
                     messagebox.showwarning("Warning (no rows affected)", err)
@@ -839,6 +867,27 @@ class MainFrame(SFContainer):
                 if index < min_index:
                     min_index = index
             # start_index = min_index - offset
+
+            result, err = self._reload_at(min_index, do_s)
+        if err is not None:
+            messagebox.showerror(title, err)
+
+    def _reload_at(self, min_index, do_s):
+        '''
+        Reload a subset of GUI rows from the underlying data.
+
+        Sequential arguments:
+        min_index -- Start reloading at this index in the GUI which corresponds
+            to an index in self._project.
+        do_s -- Provide a string describing what is being done (such as "undo"
+            or "redo") for debugging purposes.
+        '''
+        err = None
+        title = "Warning"
+        if min_index < 0:
+            err = "The index {} is bad in _reload_at".format(min_index)
+            title = "Error"
+        else:
             old_len = len(self._items)
             # self.dump2()
             echo1("  len: {}".format(old_len))
@@ -853,8 +902,9 @@ class MainFrame(SFContainer):
                 self._append_row(self._project._actions[index])
 
         if err is not None:
-            messagebox.showerror(title, err)
+            return None, err
         self.update_undo()
+        return None, None
 
     def _clear(self):
         '''
@@ -979,6 +1029,55 @@ class MainFrame(SFContainer):
             if old_luid != luid:
                 raise ValueError("Path [{}] luid {} should be {}"
                                  "".format(row, luid, old_luid))
+
+    def swap(self, index, other_index):
+        # luid = self._items[index]['luid']
+        # other_luid = self._items[other_index]['luid']
+        # self._project.swap(luid, other_luid)
+        self._project.swap(index, other_index)
+        min_index = index
+        if other_index < min_index:
+            min_index = other_index
+        title = "Swap Rows Error"
+        result, err = self._reload_at(min_index, "swap")
+        if err is not None:
+            err = "Swapping at {} and {}\n\n".format(index, other_index) + err
+            messagebox.showerror(title, err)
+
+    def move_1(self, luid, direction):
+        if direction == -1:
+            self.move_up_where(luid)
+        elif direction == 1:
+            self.move_down_where(luid)
+        else:
+            raise ValueError(
+                "move_1 must recieve -1 or 1 for direction but got {}"
+                "".format(direction)
+            )
+
+    def move_up_where(self, luid):
+        index = self._find('luid', luid)
+        if index < 0:
+            messagebox.showerror("Error", "id {} doesn't exist.".format(luid))
+            return
+        other_index = index - 1
+        if other_index < 0:
+            echo0("Can't move first element up.")
+            return
+        other_luid = self._project._actions[other_index]['luid']
+        self.swap(index, other_index)
+
+    def move_down_where(self, luid):
+        index = self._find('luid', luid)
+        if index < 0:
+            messagebox.showerror("Error", "id {} doesn't exist.".format(luid))
+            return
+        other_index = index + 1
+        if other_index >= len(self._items):
+            echo0("Can't move last element down.")
+            return
+        other_luid = self._project._actions[other_index]['luid']
+        self.swap(index, other_index)
 
     def _find(self, name, value):
         for i in range(len(self._items)):
