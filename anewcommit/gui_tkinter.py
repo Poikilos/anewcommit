@@ -40,48 +40,14 @@ else:
     import ttk
     # import Tix as tix
 
-"""
-# region same as rotocanvas imageprocessorx
-dephelp = '''sudo apt-get install python3-pil python3-pil.imagetk
-# or in a virtualenv:
-#   pip install Pillow
-'''
-enable_png = True
-try:
-    import PIL
-    from PIL import Image
-except ModuleNotFoundError as ex:
-    print("{}".format(ex))
-    print()
-    print("You must install ImageTk such as via:")
-    print(dephelp)
-    print()
-    enable_png = False
-    # sys.exit(1)
-
-try:
-    from PIL import ImageTk  # Place this at the end (to avoid any conflicts/errors)
-except ImportError as ex:
-    print("{}".format(ex))
-    print()
-    print("You must install ImageTk such as via:")
-    print(dephelp)
-    print()
-    enable_png = False
-    # sys.exit(1)
-# endregion same as rotocanvas imageprocessorx
-"""
 # import math
 
 myPath = os.path.realpath(__file__)
 myDir = os.path.dirname(myPath)
-staticDir = os.path.join(myDir, "static")
-imagesDir = os.path.join(staticDir, "images")
-# downArrowPath = os.path.join(imagesDir, "arrow-down.png")
-# upArrowPath = os.path.join(imagesDir, "arrow-up.png")
-downArrowPath = os.path.join(imagesDir, "arrow-down.gif")
-upArrowPath = os.path.join(imagesDir, "arrow-up.gif")
-arrow_paths = [upArrowPath, downArrowPath]
+# staticDir = os.path.join(myDir, "static")
+# imagesDir = os.path.join(staticDir, "images")
+# ^ unused as of commit titled
+#   "Clean up the interface by replacing per-row interaction ..."
 
 tryRepoDir = os.path.dirname(myDir)
 
@@ -522,7 +488,7 @@ class MainFrame(SFContainer):
         #   See <http://infohost.nmt.edu/tcc/help/pubs/tkinter/web/
         #   ttk-style-layer.html>
         #   via <https://stackoverflow.com/a/16639454>
-
+        self._selected_luid = None
         self._id_of_path = {}
         self._index_of_path = {}
         self._vars_of_luid = {}
@@ -543,6 +509,11 @@ class MainFrame(SFContainer):
         self.editMenu = tk.Menu(self.menu, tearoff=0)
         self.editMenu.add_command(label="Undo", command=self.undo)
         self.editMenu.add_command(label="Redo", command=self.redo)
+        self.editMenu.add_command(label="Move Up", command=self.on_mc_move_up)
+        self.editMenu.add_command(label="Move Down",
+                                  command=self.on_mc_move_down)
+        self.editMenu.add_command(label="Insert", command=self.on_mc_insert)
+        self.editMenu.add_command(label="Remove", command=self.on_mc_remove)
         # ^ add_command returns None :(
         self.menu.add_cascade(label="Edit", menu=self.editMenu)
         self.editMenu.entryconfig("Undo", state=tk.DISABLED)
@@ -558,22 +529,25 @@ class MainFrame(SFContainer):
 
         self.wide_width = 30
 
-        self.arrow_images = []
-        for arrow_path in arrow_paths:
-            if not os.path.isfile(arrow_path):
-                raise FileNotFoundError(arrow_path)
-            else:
-                print("loading {}".format(arrow_path))
-            # See <https://www.pythontutorial.net/tkinter/tkinter-label/>
-            arrow_image = tk.PhotoImage(file=arrow_path)
-            # ^ doesn't work for png, so (based on rotocanvas):
-            # arrow_image = ImageTk.PhotoImage(Image.open(arrow_path))
-            self.arrow_images.append(arrow_image)
-
     def ask_open(self):
         directory = filedialog.askdirectory()
         if directory is not None:
             self.add_versions_in(directory)
+
+    def on_click(self, luid):
+        min_index = self._find('luid', luid)
+        if min_index < 0:
+            raise IndexError("The new _selected_luid {} wasn't found."
+                             "".format(self._selected_luid))
+        if self._selected_luid is not None:
+            selected_index = self._find('luid', self._selected_luid)
+            if selected_index < 0:
+                raise IndexError("The old _selected_luid {} wasn't found."
+                                 "".format(self._selected_luid))
+            elif selected_index < min_index:
+                min_index = selected_index
+        self._selected_luid = luid
+        self._reload_at(min_index, "select")
 
     def on_var_changed(self, luid, key, var):
         echo1("on_var_changed: {}'s {} = {}"
@@ -609,6 +583,34 @@ class MainFrame(SFContainer):
             )
             # return False
         return self._project.save()
+
+    def on_mc_remove(self):
+        if self._selected_luid is None:
+            messagebox.showerror("Error", "You must select a row first.")
+            return
+        self.remove_where(self._selected_luid)
+        self._selected_luid = None
+
+    def on_mc_insert(self):
+        if self._selected_luid is None:
+            if len(self._items) == 0:
+                messagebox.showerror("Error", "First add at least one version.")
+            else:
+                messagebox.showerror("Error", "You must select a row first.")
+            return
+        self.insert_where(self._selected_luid)
+
+    def on_mc_move_up(self):
+        if self._selected_luid is None:
+            messagebox.showerror("Error", "You must select a row first.")
+            return
+        self.move_up_where(self._selected_luid)
+
+    def on_mc_move_down(self):
+        if self._selected_luid is None:
+            messagebox.showerror("Error", "You must select a row first.")
+            return
+        self.move_down_where(self._selected_luid)
 
     def _append_row(self, action):
         '''
@@ -671,55 +673,12 @@ class MainFrame(SFContainer):
             )
         echo1("* adding row at {}".format(row))
         frame = tk.Frame(self.scrollable_frame)
+        frame.bind("<Button-1>", lambda e, l=luid: self.on_click(l))
+        if luid == self._selected_luid:
+            frame.configure(background="light blue")
         frame.data = action
         self._frame_of_luid[luid] = frame
         self._vars_of_luid[luid] = {}
-        arrows_frame = ttk.Frame(
-            frame,
-        )
-        arrows_frame.pack(side=tk.LEFT)
-        arrow_c = "^"
-        # arrow_f = self.move_up_where
-        direction = -1
-        for arrow_image in self.arrow_images:
-            arrow_label = ttk.Label(
-                arrows_frame,
-                image=arrow_image,
-                # command=lambda: arrow_f(luid),
-                # compound='image',
-                # text=arrow_c,
-            )
-            # arrow_label.bind("<Button-1>", lambda e: arrow_f(e, luid))
-            arrow_label.bind(
-                "<Button-1>",
-                lambda e, y=direction: self.move_1(luid, y),
-            )
-            # ^ recieve event, but only send luid!
-            # ^ y=direction forces early binding (otherwise always sends 1)
-            # arrow_label['image'] = arrow_image
-            arrow_label.pack(side=tk.TOP)
-            arrow_c = "v"
-            # arrow_f = self.move_down_where
-            # ^ doesn't work due to late binding (both buttons go down),
-            #   so use move_1 instead
-            direction = 1
-
-        button = ttk.Button(
-            frame,
-            text="+",
-            width=2,
-            command=lambda: self.insert_where(luid),
-        )
-        # button.grid(column=1, row=row, sticky=tk.W)
-        button.pack(side=tk.LEFT, padx=(10, 0))
-        button = ttk.Button(
-            frame,
-            text="-",
-            width=2,
-            command=lambda: self.remove_where(luid),
-        )
-        # button.grid(column=1, row=row, sticky=tk.W)
-        button.pack(side=tk.LEFT, padx=(10, 0))
 
         results = dict_to_widgets(
             action,
@@ -791,6 +750,7 @@ class MainFrame(SFContainer):
         echo2("  - dict_to_widgets got {} widgets."
               "".format(len(results['widgets'])))
         for name, widget in results['widgets'].items():
+            widget.bind("<Button-1>", lambda e, l=luid: self.on_click(l))
             widget.pack(side=tk.LEFT)
             var = results['vs'][name]
             self._vars_of_luid[luid][name] = var

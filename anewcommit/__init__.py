@@ -235,6 +235,7 @@ def substep_to_str(ss):
     if (len(ss) > 2) and (len(ss) < 3) and isinstance(ss[1], int):
         name = ss[2].get('path')
     else:
+        # If len(ss) is 3, it is a swap operation (2 luid params)
         name = str(ss)
     if name is not None:
         name = os.path.split(name)[1]
