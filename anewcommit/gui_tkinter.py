@@ -23,12 +23,14 @@ import sys
 # import locale as lc
 import json
 import copy
+import subprocess
 
 python_mr = sys.version_info[0]
 
 if python_mr >= 3:
     from tkinter import messagebox
     from tkinter import filedialog
+    from tkinter import simpledialog
     import tkinter as tk
     from tkinter import ttk
     # from tkinter import tix
@@ -36,6 +38,7 @@ else:
     # Python 2
     import tkMessageBox as messagebox
     import tkFileDialog as filedialog
+    import tkSimpleDialog as simpledialog
     import Tkinter as tk
     import ttk
     # import Tix as tix
@@ -505,6 +508,8 @@ class MainFrame(SFContainer):
 
         self.fileMenu = tk.Menu(self.menu, tearoff=0)
         self.fileMenu.add_command(label="Open", command=self.ask_open)
+        self.fileMenu.add_command(label="Mark if has folder...",
+                                  command=self.ask_mark_if_has_folder)
         self.fileMenu.add_command(label="Exit", command=self.exitProgram)
         self.menu.add_cascade(label="File", menu=self.fileMenu)
 
@@ -516,6 +521,10 @@ class MainFrame(SFContainer):
                                   command=self.on_mc_move_down)
         self.editMenu.add_command(label="Insert", command=self.on_mc_insert)
         self.editMenu.add_command(label="Remove", command=self.on_mc_remove)
+        self.editMenu.add_command(label="Compare with Previous",
+                                  command=self.on_mc_compare_up)
+        self.editMenu.add_command(label="Compare with Next",
+                                  command=self.on_mc_compare_down)
         # ^ add_command returns None :(
         self.menu.add_cascade(label="Edit", menu=self.editMenu)
         self.editMenu.entryconfig("Undo", state=tk.DISABLED)
@@ -523,7 +532,7 @@ class MainFrame(SFContainer):
 
         self.helpMenu = tk.Menu(self.menu, tearoff=0)
         self.helpMenu.add_command(label="Dump to console", command=self.dump0)
-        self.menu.add_cascade(label="File", menu=self.helpMenu)
+        self.menu.add_cascade(label="Help", menu=self.helpMenu)
 
         self.pack(fill=tk.BOTH, expand=True)
         # Doesn't work: padx=(10, 10), pady=(10, 10),
@@ -535,6 +544,29 @@ class MainFrame(SFContainer):
         directory = filedialog.askdirectory()
         if directory is not None:
             self.add_versions_in(directory)
+
+    def ask_mark_if_has_folder(self):
+        relPath = simpledialog.askstring(
+            "Mark if has folder",
+            "What is the folder relative to the version's base?"
+        )
+        if relPath is not None:
+            self.mark_if_has_folder(relPath)
+
+    def mark_if_has_folder(self, relPath):
+        ranges = self._project.get_ranges()
+        version_indices = []
+        for r in ranges:
+            version_i, _ = self._project.get_affected(r[0])
+            version_indices.append(version_i)
+            action = self._project._actions[version_i]
+            parent = action['path']
+            subPath = os.path.join(parent, relPath)
+            if os.path.isdir(subPath):
+                pathLabel = tk.Label(self._items[version_i], text=relPath)
+                pathLabel.pack(side=tk.LEFT)
+
+
 
     def on_click(self, luid):
         self.select_luid(luid)
@@ -632,6 +664,53 @@ class MainFrame(SFContainer):
             messagebox.showerror("Error", "You must select a row first.")
             return
         self.move_down_where(self._selected_luid)
+
+    def on_mc_compare_up(self):
+        if self._selected_luid is None:
+            messagebox.showerror("Error", "You must select a row first.")
+            return
+        click_i = self._project._find_where('luid', self._selected_luid)
+        self.compare(click_i, -1)
+
+    def on_mc_compare_down(self):
+        if self._selected_luid is None:
+            messagebox.showerror("Error", "You must select a row first.")
+            return
+        click_i = self._project._find_where('luid', self._selected_luid)
+        self.compare(click_i, 1)
+
+    def compare(self, start, direction):
+        # ^ start may not be a version, so look for the related version below.
+        if direction not in [-1, 1]:
+            raise ValueError(
+                "compare must recieve -1 or 1 for direction but got {}"
+                "".format(direction)
+            )
+
+        from_i, from_range = self._project.get_affected(start)
+        if from_i is None:
+            messagebox.showerror("Error", "An affected version wasn't found.")
+            return
+        if from_range is None:
+            messagebox.showerror("Error", "An affected row set wasn't found.")
+            return
+        to_near_i = None
+        if direction == -1:
+            to_near_i = from_range[0] - 1
+            if to_near_i < 0:
+                messagebox.showerror("Error", "There is no previous version.")
+                return
+        else:
+            to_near_i = from_range[-1] + 1
+            if to_near_i >= len(self._project._actions):
+                messagebox.showerror("Error", "There is no next version.")
+                return
+        to_i, to_range = self._project.get_affected(to_near_i)
+        from_path = self._project._actions[from_i]['path']
+        to_path = self._project._actions[to_i]['path']
+        c_args = ['meld', from_path, to_path]
+        subprocess.Popen(c_args)
+
 
     def _append_row(self, action):
         '''

@@ -162,6 +162,7 @@ def _new_process(luid=None):
 VERSION_VERBS = [
     'get_version',
 ]
+DEFAULT_VERSION_VERB = VERSION_VERBS[0]
 
 TRANSITION_VERBS = [
     'pre_process',
@@ -191,7 +192,7 @@ def new_version(path, mode='delete_then_add', luid=None, name=None):
 
     action['path'] = path
     action['mode'] = mode  # The mode only applies to 'get_version'.
-    action['verb'] = VERSION_VERBS[0]
+    action['verb'] = DEFAULT_VERSION_VERB
     action['commit'] = True
     if name is None:
         action['name'] = os.path.split(path)[1]
@@ -412,6 +413,67 @@ class ANCProject:
             if self._actions[i].get(name) == value:
                 return i
         return -1
+
+    def get_affected(self, near_index):
+        '''
+        Get a tuple (version index, range), where *version index* is near_index
+        or the index of the version it affects, and *range* is the entire range
+        of indices affecting the version that the index represents or affects.
+        '''
+        # prev_luid = None
+        # version_luid = None  # The luid of the affected version.
+        # next_luid = None
+        prev_i = None
+        # next_i = None
+        version_i = None  # The index of the affected version.
+        near_action = self._actions[near_index]
+        if near_action['verb'] in VERSION_VERBS:
+            version_i = near_index
+        ranges = self.get_ranges()
+        affected_range_i = None
+        affected_range = None
+        for range_i in range(len(ranges)):
+            r = ranges[range_i]
+            if near_index in r:
+                affected_range_i = range_i
+                affected_range = r
+        if version_i is None:
+            for i in affected_range:
+                if self._actions[i]['verb'] in VERSION_VERBS:
+                    version_i = i
+                    break
+        return version_i, affected_range
+
+    def get_ranges(self):
+        '''
+        Get each group of actions by version.
+        '''
+        ranges = []
+        this_range = []
+        ENDERS = VERSION_VERBS + ['pre_process']
+        version_i = None
+        for i in range(0, len(self._actions)):
+            action = self._actions[i]
+            if version_i is None:
+                if action['verb'] in VERSION_VERBS:
+                    version_i = i
+                elif action['verb'] != 'pre_process':
+                    raise ValueError(
+                        "{} occurs before a version"
+                        "".format(action['verb'])
+                    )
+            else:
+               if action['verb'] in ENDERS:
+                    if len(this_range) > 0:
+                        ranges.append(this_range)
+                        this_range = []
+                        version_i = None
+            this_range.append(i)
+
+        if len(this_range) > 0:
+            ranges.append(this_range)
+
+        return ranges
 
     def get_action(self, luid):
         i = self._find_action(luid)
