@@ -500,6 +500,8 @@ class MainFrame(SFContainer):
         self.parent.config(menu=self.menu)
         self.next_id = 0
         self._items = []
+        self.selection_color = "light blue"
+        self.bg_color = None
 
         self.fileMenu = tk.Menu(self.menu, tearoff=0)
         self.fileMenu.add_command(label="Open", command=self.ask_open)
@@ -535,19 +537,38 @@ class MainFrame(SFContainer):
             self.add_versions_in(directory)
 
     def on_click(self, luid):
-        min_index = self._find('luid', luid)
-        if min_index < 0:
-            raise IndexError("The new _selected_luid {} wasn't found."
-                             "".format(self._selected_luid))
-        if self._selected_luid is not None:
-            selected_index = self._find('luid', self._selected_luid)
-            if selected_index < 0:
-                raise IndexError("The old _selected_luid {} wasn't found."
+        self.select_luid(luid)
+
+    def select_luid(self, luid):
+        min_index = -1
+        new_frame = None
+        if luid is not None:
+            min_index = self._find('luid', luid)
+            if luid == self._selected_luid:
+                # The row is already selected, so don't refresh.
+                return
+            elif min_index > -1:
+                new_frame = self._items[min_index]
+            else:
+                raise IndexError("The new _selected_luid {} wasn't found."
                                  "".format(self._selected_luid))
-            elif selected_index < min_index:
-                min_index = selected_index
-        self._selected_luid = luid
-        self._reload_at(min_index, "select")
+        # else allow deselecting (only if luid is None)
+        old_frame = None
+        if self._selected_luid is not None:
+            old_frame_i = self._find('luid', self._selected_luid)
+            if old_frame_i > -1:
+                old_frame = self._items[old_frame_i]
+
+
+        if new_frame is not None:
+            self._selected_luid = luid
+            if self.bg_color is None:
+                self.bg_color = new_frame.cget("background")
+            new_frame.configure(background=self.selection_color)
+
+        if old_frame is not None:
+            old_frame.configure(background=self.bg_color)
+
 
     def on_var_changed(self, luid, key, var):
         echo1("on_var_changed: {}'s {} = {}"
@@ -674,8 +695,10 @@ class MainFrame(SFContainer):
         echo1("* adding row at {}".format(row))
         frame = tk.Frame(self.scrollable_frame)
         frame.bind("<Button-1>", lambda e, l=luid: self.on_click(l))
+        if self.bg_color is None:
+            self.bg_color = frame.cget("background")
         if luid == self._selected_luid:
-            frame.configure(background="light blue")
+            frame.configure(background=self.selection_color)
         frame.data = action
         self._frame_of_luid[luid] = frame
         self._vars_of_luid[luid] = {}
