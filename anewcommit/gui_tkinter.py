@@ -24,6 +24,7 @@ import sys
 import json
 import copy
 import subprocess
+from datetime import datetime, timedelta
 
 python_mr = sys.version_info[0]
 
@@ -75,6 +76,7 @@ from anewcommit import (
     profile,
     substep_to_str,
     s2or3,
+    newest_file_dt_in,
 )
 
 echos = []
@@ -505,11 +507,15 @@ class MainFrame(SFContainer):
         self._items = []
         self.selection_color = "light blue"
         self.bg_color = None
+        self.prefill_date = None
+        self.date_fmt = "%Y-%m-%d"
 
         self.fileMenu = tk.Menu(self.menu, tearoff=0)
         self.fileMenu.add_command(label="Open", command=self.ask_open)
         self.fileMenu.add_command(label="Mark if has folder...",
                                   command=self.ask_mark_if_has_folder)
+        self.fileMenu.add_command(label="Mark maximum file date...",
+                                  command=self.ask_mark_max_date_before)
         self.fileMenu.add_command(label="Exit", command=self.exitProgram)
         self.menu.add_cascade(label="File", menu=self.fileMenu)
 
@@ -546,29 +552,80 @@ class MainFrame(SFContainer):
             self.add_versions_in(directory)
 
     def ask_mark_if_has_folder(self):
+        default_str = ""
+        if self.prefill_date is not None:
+            default_str = self.prefill_date
         relPath = simpledialog.askstring(
             "Mark if has folder",
-            "What is the folder relative to the version's base?"
+            "What is the folder relative to the version's base?",
+            initialvalue=default_str,
         )
         if relPath is not None:
             self.mark_if_has_folder(relPath)
 
-    def mark_if_has_folder(self, relPath):
-        ranges = self._project.get_ranges()
-        version_indices = []
+    def ask_mark_max_date_before(self):
+        max_date_str = simpledialog.askstring(
+            "Mark with maximum date",
+            "What date is too new (YYYY-MM-DD or leave blank)?"
+        )
+        try:
+            self.mark_max_date_before(max_date_str)
+        except ValueError as ex:
+            self.prefill_date = max_date_str
+            if "time data" in str(ex):
+                messagebox.showerror("Error", str(ex))
+                self.ask_mark_max_date_before()
+            else:
+                raise ex
+
+    def mark_max_date_before(self, too_new_date_str):
+        # See <https://docs.python.org/3/library/datetime.html
+        # #strftime-and-strptime-format-codes>
+        if too_new_date_str is not None:
+            if too_new_date_str.strip() == "":
+                too_new_date_str = None
+        too_new_dt = None
+        if too_new_date_str is not None:
+            too_new_dt = datetime.strptime(too_new_date_str, self.date_fmt)
+        try:
+            ranges = self._project.get_ranges()
+        except Exception as ex:
+            messagebox.showerror("Error", str(ex))
+            raise ex
+        echo0("Processing {} version(s)".format(len(ranges)))
         for r in ranges:
             version_i, _ = self._project.get_affected(r[0])
-            version_indices.append(version_i)
+            echo0("Processing version index {} in {}"
+                  "".format(version_i, _))
+            action = self._project._actions[version_i]
+            parent = action['path']
+            newest_dt = newest_file_dt_in(parent, too_new_dt=too_new_dt)
+            if newest_dt is not None:
+                date_str = newest_dt.strftime(self.date_fmt)
+                if len(date_str.strip()) == 0:
+                    date_str = "(bad date)"
+            else:
+                date_str = "(no date in range)"
+            widget = tk.Label(self._items[version_i], text=date_str)
+            widget.pack(side=tk.LEFT)
+            luid = self._project._actions[version_i]['luid']
+            widget.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))
+
+
+    def mark_if_has_folder(self, relPath):
+        ranges = self._project.get_ranges()
+        for r in ranges:
+            version_i, _ = self._project.get_affected(r[0])
             action = self._project._actions[version_i]
             parent = action['path']
             subPath = os.path.join(parent, relPath)
             if os.path.isdir(subPath):
-                pathLabel = tk.Label(self._items[version_i], text=relPath)
-                pathLabel.pack(side=tk.LEFT)
+                widget = tk.Label(self._items[version_i], text=relPath)
+                widget.pack(side=tk.LEFT)
+                luid = self._project._actions[version_i]['luid']
+                widget.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))
 
-
-
-    def on_click(self, luid):
+    def on_click_row(self, luid):
         self.select_luid(luid)
 
     def select_luid(self, luid):
@@ -773,7 +830,7 @@ class MainFrame(SFContainer):
             )
         echo1("* adding row at {}".format(row))
         frame = tk.Frame(self.scrollable_frame)
-        frame.bind("<Button-1>", lambda e, l=luid: self.on_click(l))
+        frame.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))
         if self.bg_color is None:
             self.bg_color = frame.cget("background")
         if luid == self._selected_luid:
@@ -852,7 +909,7 @@ class MainFrame(SFContainer):
         echo2("  - dict_to_widgets got {} widgets."
               "".format(len(results['widgets'])))
         for name, widget in results['widgets'].items():
-            widget.bind("<Button-1>", lambda e, l=luid: self.on_click(l))
+            widget.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))
             widget.pack(side=tk.LEFT)
             var = results['vs'][name]
             self._vars_of_luid[luid][name] = var

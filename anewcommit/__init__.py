@@ -5,6 +5,8 @@ import sys
 import os
 import platform
 import json
+from datetime import datetime, timezone
+import pathlib
 
 python_mr = sys.version_info[0]
 
@@ -16,6 +18,14 @@ for argI in range(1, len(sys.argv)):
             verbose = 1
         elif arg == "--debug":
             verbose = 2
+
+
+def set_verbosity(level):
+    global verbosity
+    verbosity_levels = [True, False, 0, 1, 2]
+    if level not in verbosity_levels:
+        raise ValueError("verbosity must be 0-2 but was {}".format(verbosity))
+    verbosity = level
 
 
 def echo0(*args, **kwargs):
@@ -112,6 +122,44 @@ def extract(src_file, new_parent_dir, auto_sub=True,
     """
     raise NotImplementedError("There is nothing implemented here yet.")
 
+def newest_file_dt_in(parent, too_new_dt=None, level=0):
+    '''
+    Get the datetime of the latest file in parent recursively.
+
+    Keyword arguments:
+    too_new_dt -- skip files with a datetime >= too_new_dt if not None.
+    level -- Determine the directory depth for debugging use only (doesn't
+        affect results).
+    '''
+    newest_dt = None
+    for sub in os.listdir(parent):
+        subPath = os.path.join(parent, sub)
+        if os.path.islink(subPath):
+            continue
+        mdt = None
+        if os.path.isfile(subPath):
+            # mtime = os.path.getmtime(subPath)
+            mtime = pathlib.Path(subPath).stat().st_mtime
+            # ^ pathlib stat best cross-platform way according to
+            #   <pynative.com/python-file-creation-modification-datetime/>
+            mdt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+        elif os.path.isdir(subPath):
+            mdt = newest_file_dt_in(
+                subPath,
+                too_new_dt=too_new_dt,
+                level=level+1,
+            )
+        if mdt is None:
+            # It must be an empty directory, or file dates are >= too_new_dt
+            continue
+        if (too_new_dt is None) or (mdt < too_new_dt):
+            if (newest_dt is None) or (mdt > newest_dt):
+                newest_dt = mdt
+    if newest_dt is None:
+        if level == 0:
+            echo0("- no date < {} could be found in {}"
+                  "".format(too_new_dt, subPath))
+    return newest_dt
 
 MODES = [
     'delete_then_add',
@@ -463,15 +511,35 @@ class ANCProject:
                         "".format(action['verb'])
                     )
             else:
-               if action['verb'] in ENDERS:
+                if action['verb'] in ENDERS:
                     if len(this_range) > 0:
                         ranges.append(this_range)
                         this_range = []
                         version_i = None
+                        if action['verb'] in VERSION_VERBS:
+                            version_i = i
             this_range.append(i)
 
         if len(this_range) > 0:
             ranges.append(this_range)
+
+        totals = {}
+        for rI in range(len(ranges)):
+            for i in ranges[rI]:
+                key = str(rI)
+                count = totals.get(key)
+                if count is None:
+                    count = 0
+                if self._actions[i]['verb'] in VERSION_VERBS:
+                    count += 1
+                totals[key] = count
+                if count > 1:
+                    echo0("ENDERS={}".format(ENDERS))
+                    echo0("ranges={}".format(ranges))
+                    raise RuntimeError(
+                        "The data wasn't grouped correctly. The action set has"
+                        " more than one version."
+                    )
 
         return ranges
 
