@@ -106,8 +106,13 @@ WIDGET_TYPES = ["Checkbutton", "OptionMenu", "Entry", "Label"]
 
 actions_field_order = ['commit', 'verb', 'mode', 'name']
 actions_captions = ['       ', ' ^    ', 'Action']
-transition_field_order = ['commit', 'verb', 'command']
-version_field_order = ['commit', 'mode', 'name']
+transition_field_order = ['commit', 'date', 'verb', 'command']
+version_field_order = ['commit', 'date', 'mode', 'name']
+
+# See
+# <docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes>
+dt_format =  "%Y-%m-%d %H:%M:%S"
+date_format =  "%Y-%m-%d"
 
 field_widths = {}
 selector_width = verb_width
@@ -115,6 +120,7 @@ if mode_width > selector_width:
     selector_width = mode_width
 field_widths['verb'] = selector_width
 field_widths['mode'] = selector_width
+field_widths['date'] = len(datetime.now().strftime(date_format))
 # field_widths['commit'] = 5
 
 conditional_formatting = {
@@ -133,6 +139,10 @@ _version_template_fields = {
     },
     'path': {
         'hide': True,
+    },
+    'date': {
+        'maxchars': field_widths['date'],
+        'widget': 'Entry',
     },
     'verb': {
         'maxchars': verb_width,
@@ -566,12 +576,16 @@ class MainFrame(SFContainer):
         )
         if relPath is not None:
             self.mark_if_has_folder(relPath)
+        # else The "Cancel" button was pressed.
 
     def ask_mark_max_date_before(self):
         max_date_str = simpledialog.askstring(
             "Mark with maximum date",
             "What date is too new (YYYY-MM-DD or leave blank)?"
         )
+        if max_date_str is None:
+            # The "Cancel" button was pressed.
+            return
         try:
             self.mark_max_date_before(max_date_str)
         except ValueError as ex:
@@ -583,8 +597,6 @@ class MainFrame(SFContainer):
                 raise ex
 
     def mark_max_date_before(self, too_new_date_str):
-        # See <https://docs.python.org/3/library/datetime.html
-        # #strftime-and-strptime-format-codes>
         if too_new_date_str is not None:
             if too_new_date_str.strip() == "":
                 too_new_date_str = None
@@ -599,6 +611,7 @@ class MainFrame(SFContainer):
         echo0("Processing {} version(s)".format(len(ranges)))
         count = 0
         done = 0
+        min_index = len(self._project._actions)
         for r in ranges:
             version_i, _ = self._project.get_affected(r[0])
             echo0("Processing version index {} in {}"
@@ -614,14 +627,15 @@ class MainFrame(SFContainer):
                 date_str = "(no date in range)"
 
             luid = action['luid']
-            statement = 'sub "{}"'.format(date_str)
-            count += 1
-            if not self._project.append_statement_where(luid, statement):
-                continue
-            widget = tk.Label(self._items[version_i], text=date_str)
-            widget.pack(side=tk.LEFT)
-            widget.bind("<Button-1>", lambda e, l=luid: self.on_click_date(l))
+            if action.get('date') != date_str:
+                if version_i < min_index:
+                    min_index = version_i
+            action['date'] = date_str
             done += 1
+
+        if min_index < len(self._project._actions):
+            self._project.save()
+            self._reload_at(min_index, "mark date")
 
         if (count > 0) and  (done < count):
             messagebox.showinfo(
@@ -648,8 +662,10 @@ class MainFrame(SFContainer):
             done += 1
             widget = tk.Label(self._items[version_i], text=relPath)
             widget.pack(side=tk.LEFT)
-            widget.bind("<Button-1>",
-                        lambda e, l=luid: self.on_click_sub(l))
+            widget.bind(
+                "<Button-1>",
+                lambda e, l=luid, st=statement: self.on_click_sub(l, st),
+            )
 
         if (count > 0) and  (done < count):
             messagebox.showinfo(
@@ -664,7 +680,15 @@ class MainFrame(SFContainer):
     def on_click_date(self, luid):
         self.on_click_row(luid)
 
-    def on_click_sub(self, luid):
+    def on_click_sub(self, luid, statement):
+        min_index = self._find('luid', luid)
+        yes = messagebox.askyesno(
+            "clicked directory",
+            'Unmark as {}?'.format(statement),
+        )
+        if yes:
+            self._project.remove_statement_where(luid, statement)
+            self._reload_at(min_index, "remove sub")
         self.on_click_row(luid)
 
     def select_luid(self, luid):
@@ -952,6 +976,7 @@ class MainFrame(SFContainer):
             widget.pack(side=tk.LEFT)
             var = results['vs'][name]
             self._vars_of_luid[luid][name] = var
+
         statements = action.get('statements')
         if statements is not None:
             for statement in statements:
@@ -959,16 +984,15 @@ class MainFrame(SFContainer):
                 command = args[0]
                 text = args[1]
                 widget = tk.Label(frame, text=text)
-                if command == "date":
-                    widget.bind("<Button-1>", lambda e, l=luid: self.on_click_date(l))
-                elif command == "sub":
-                    widget.bind("<Button-1>", lambda e, l=luid: self.on_click_sub(l))
+                if command == "sub":
+                    widget.bind("<Button-1>", lambda e, l=luid, st=statement: self.on_click_sub(l, st))
                 else:
                     raise ValueError(
                         'Unknown command "{}" in "{}"'
                         ''.format(command, statement)
                     )
                 widget.pack(side=tk.LEFT)
+
         frame.pack(fill=tk.X)
         # ^ must match the pack call in insert so layout is consistent
         # ^ expand=True: makes the row taller so rows fill the window
@@ -1305,6 +1329,9 @@ class MainFrame(SFContainer):
             messagebox.showerror("Error", str(ex))
 
     def set_commit(self, luid, on):
+        '''
+        Turn the commit option of the version or process off or on.
+        '''
         self._project.set_commit(luid, on)
 
     def set_verb(self, luid, verb):

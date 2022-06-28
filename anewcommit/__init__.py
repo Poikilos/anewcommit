@@ -490,6 +490,27 @@ class ANCProject:
             return True
         return False
 
+    def remove_statement_where(self, luid, statement, force=False):
+        '''
+        Returns:
+        True if removed, otherwise false.
+        '''
+        args = split_statement(statement)
+        if len(args) < 2:
+            raise ValueError(
+                'The statement "{}" does not resolve to >=2 parts: {}'
+                ''.format(statement, args)
+            )
+        i = self._find_where('luid', luid)
+        if self._actions[i].get('statements') is None:
+            self._actions[i]['statements'] = []
+        if statement in self._actions[i]['statements']:
+            self._actions[i]['statements'].remove(statement)
+            self.save()
+            return True
+        return False
+
+
     def _find_where(self, name, value):
         for i in range(len(self._actions)):
             if self._actions[i].get(name) == value:
@@ -505,19 +526,19 @@ class ANCProject:
         # prev_luid = None
         # version_luid = None  # The luid of the affected version.
         # next_luid = None
-        prev_i = None
+        # prev_i = None
         # next_i = None
         version_i = None  # The index of the affected version.
         near_action = self._actions[near_index]
         if near_action['verb'] in VERSION_VERBS:
             version_i = near_index
         ranges = self.get_ranges()
-        affected_range_i = None
+        # affected_range_i = None
         affected_range = None
         for range_i in range(len(ranges)):
             r = ranges[range_i]
             if near_index in r:
-                affected_range_i = range_i
+                # affected_range_i = range_i
                 affected_range = r
         if version_i is None:
             for i in affected_range:
@@ -753,6 +774,9 @@ class ANCProject:
         return self.remove_where('luid', luid)
 
     def set_commit(self, luid, on):
+        '''
+        Turn the commit option of the version or process off or on.
+        '''
         action = self.get_action(luid)
         echo0("NotYetImplemented: set_commit('{}', {})"
               "".format(luid, on))
