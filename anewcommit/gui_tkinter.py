@@ -24,7 +24,10 @@ import sys
 import json
 import copy
 import subprocess
-from datetime import datetime, timedelta
+from datetime import (
+    datetime,
+    # timedelta,
+)
 
 python_mr = sys.version_info[0]
 
@@ -77,6 +80,7 @@ from anewcommit import (
     substep_to_str,
     s2or3,
     newest_file_dt_in,
+    split_statement,
 )
 
 echos = []
@@ -593,6 +597,8 @@ class MainFrame(SFContainer):
             messagebox.showerror("Error", str(ex))
             raise ex
         echo0("Processing {} version(s)".format(len(ranges)))
+        count = 0
+        done = 0
         for r in ranges:
             version_i, _ = self._project.get_affected(r[0])
             echo0("Processing version index {} in {}"
@@ -606,27 +612,60 @@ class MainFrame(SFContainer):
                     date_str = "(bad date)"
             else:
                 date_str = "(no date in range)"
+
+            luid = action['luid']
+            statement = 'sub "{}"'.format(date_str)
+            count += 1
+            if not self._project.append_statement_where(luid, statement):
+                continue
             widget = tk.Label(self._items[version_i], text=date_str)
             widget.pack(side=tk.LEFT)
-            luid = self._project._actions[version_i]['luid']
-            widget.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))
+            widget.bind("<Button-1>", lambda e, l=luid: self.on_click_date(l))
+            done += 1
 
+        if (count > 0) and  (done < count):
+            messagebox.showinfo(
+                "Info",
+                "{}/{} already marked".format(count-done, count),
+            )
 
     def mark_if_has_folder(self, relPath):
         ranges = self._project.get_ranges()
+        count = 0
+        done = 0
         for r in ranges:
             version_i, _ = self._project.get_affected(r[0])
             action = self._project._actions[version_i]
             parent = action['path']
             subPath = os.path.join(parent, relPath)
-            if os.path.isdir(subPath):
-                widget = tk.Label(self._items[version_i], text=relPath)
-                widget.pack(side=tk.LEFT)
-                luid = self._project._actions[version_i]['luid']
-                widget.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))
+            if not os.path.isdir(subPath):
+                continue
+            luid = action['luid']
+            statement = 'sub "{}"'.format(relPath)
+            count += 1
+            if not self._project.append_statement_where(luid, statement):
+                continue
+            done += 1
+            widget = tk.Label(self._items[version_i], text=relPath)
+            widget.pack(side=tk.LEFT)
+            widget.bind("<Button-1>",
+                        lambda e, l=luid: self.on_click_sub(l))
+
+        if (count > 0) and  (done < count):
+            messagebox.showinfo(
+                "Info",
+                "{}/{} already marked".format(count-done, count),
+            )
+
 
     def on_click_row(self, luid):
         self.select_luid(luid)
+
+    def on_click_date(self, luid):
+        self.on_click_row(luid)
+
+    def on_click_sub(self, luid):
+        self.on_click_row(luid)
 
     def select_luid(self, luid):
         min_index = -1
@@ -913,6 +952,23 @@ class MainFrame(SFContainer):
             widget.pack(side=tk.LEFT)
             var = results['vs'][name]
             self._vars_of_luid[luid][name] = var
+        statements = action.get('statements')
+        if statements is not None:
+            for statement in statements:
+                args = split_statement(statement)
+                command = args[0]
+                text = args[1]
+                widget = tk.Label(frame, text=text)
+                if command == "date":
+                    widget.bind("<Button-1>", lambda e, l=luid: self.on_click_date(l))
+                elif command == "sub":
+                    widget.bind("<Button-1>", lambda e, l=luid: self.on_click_sub(l))
+                else:
+                    raise ValueError(
+                        'Unknown command "{}" in "{}"'
+                        ''.format(command, statement)
+                    )
+                widget.pack(side=tk.LEFT)
         frame.pack(fill=tk.X)
         # ^ must match the pack call in insert so layout is consistent
         # ^ expand=True: makes the row taller so rows fill the window
@@ -971,7 +1027,7 @@ class MainFrame(SFContainer):
         if results is None:
             title = "Error"
         else:
-            offset = len(results['added']) - len(results['removed'])
+            # offset = len(results['added']) - len(results['removed'])
             indices = results['added'] + results['removed']
             indices += results['swapped']
             indices += results['swapped_luids']
@@ -1002,10 +1058,8 @@ class MainFrame(SFContainer):
             or "redo") for debugging purposes.
         '''
         err = None
-        title = "Warning"
         if min_index < 0:
             err = "The index {} is bad in _reload_at".format(min_index)
-            title = "Error"
         else:
             old_len = len(self._items)
             # self.dump2()
@@ -1183,7 +1237,7 @@ class MainFrame(SFContainer):
         if other_index < 0:
             echo0("Can't move first element up.")
             return
-        other_luid = self._project._actions[other_index]['luid']
+        # other_luid = self._project._actions[other_index]['luid']
         self.swap(index, other_index)
 
     def move_down_where(self, luid):
@@ -1195,7 +1249,7 @@ class MainFrame(SFContainer):
         if other_index >= len(self._items):
             echo0("Can't move last element down.")
             return
-        other_luid = self._project._actions[other_index]['luid']
+        # other_luid = self._project._actions[other_index]['luid']
         self.swap(index, other_index)
 
     def _find(self, name, value):
@@ -1496,15 +1550,7 @@ if __name__ == "__main__":
     main()
 
 
-# TODO (after handed in): The "Urban" line below causes the following
-# error on python2:
-# "SyntaxError: Non-ASCII character '\xe2' in file imageprocessorx.py on
-# line " ... so the apostraphe must become a standard one (single quote)
 # References
 # Urban, M., & Murach, J. (2016). Murach's Python Programming
 #     [VitalSource Bookshelf]. Retrieved from
 #     https://bookshelf.vitalsource.com/#/books/9781943872152
-# Cagle, J. R. (2007, February 12). Tkinter button "disable" ? [Reply].
-#     Retrieved December 15, 2019, from DaniWeb website:
-#     <https://www.daniweb.com/programming/software-development/threads/
-#     69669/tkinter-button-disable>

@@ -161,6 +161,17 @@ def newest_file_dt_in(parent, too_new_dt=None, level=0):
                   "".format(too_new_dt, subPath))
     return newest_dt
 
+
+def split_statement(statement):
+    # TODO: split multiple arguments (respecting quotes)
+    spaceI = statement.find(" ")
+    command = statement[:spaceI]
+    text = statement[spaceI+1:]
+    if text.startswith('"') and text.endswith('"'):
+        text = text[1:-1]
+    return [command, text]
+
+
 MODES = [
     'delete_then_add',
     'overlay',
@@ -455,6 +466,29 @@ class ANCProject:
         # ^ new_version raises ValueError if the mode is invalid.
         self.append_action(action)
         return action
+
+    def append_statement_where(self, luid, statement, force=False):
+        '''
+        Keyword arguments:
+        force -- Add it even it is already in the list.
+
+        Returns:
+        True if added, otherwise false.
+        '''
+        args = split_statement(statement)
+        if len(args) < 2:
+            raise ValueError(
+                'The statement "{}" does not resolve to >=2 parts: {}'
+                ''.format(statement, args)
+            )
+        i = self._find_where('luid', luid)
+        if self._actions[i].get('statements') is None:
+            self._actions[i]['statements'] = []
+        if statement not in self._actions[i]['statements']:
+            self._actions[i]['statements'].append(statement)
+            self.save()
+            return True
+        return False
 
     def _find_where(self, name, value):
         for i in range(len(self._actions)):
