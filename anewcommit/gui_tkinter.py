@@ -541,14 +541,17 @@ class MainFrame(SFContainer):
                                   command=self.on_mc_move_down)
         self.editMenu.add_command(label="Insert", command=self.on_mc_insert)
         self.editMenu.add_command(label="Remove", command=self.on_mc_remove)
-        self.editMenu.add_command(label="Compare with Previous",
-                                  command=self.on_mc_compare_up)
-        self.editMenu.add_command(label="Compare with Next",
-                                  command=self.on_mc_compare_down)
         # ^ add_command returns None :(
         self.menu.add_cascade(label="Edit", menu=self.editMenu)
         self.editMenu.entryconfig("Undo", state=tk.DISABLED)
         self.editMenu.entryconfig("Redo", state=tk.DISABLED)
+
+        self.viewMenu = tk.Menu(self.menu, tearoff=0)
+        self.viewMenu.add_command(label="View changes in Sunflower",
+                                  command=self.on_mc_view_changes_sunflower)
+        self.viewMenu.add_command(label="View changes in Meld",
+                                  command=self.on_mc_view_changes_meld)
+        self.menu.add_cascade(label="View", menu=self.viewMenu)
 
         self.helpMenu = tk.Menu(self.menu, tearoff=0)
         self.helpMenu.add_command(label="Dump to console", command=self.dump0)
@@ -785,21 +788,21 @@ class MainFrame(SFContainer):
             return
         self.move_down_where(self._selected_luid)
 
-    def on_mc_compare_up(self):
+    def on_mc_view_changes_meld(self):
         if self._selected_luid is None:
             messagebox.showerror("Error", "You must select a row first.")
             return
         click_i = self._project._find_where('luid', self._selected_luid)
-        self.compare(click_i, -1)
+        self.compare(click_i, -1, command="meld")
 
-    def on_mc_compare_down(self):
+    def on_mc_view_changes_sunflower(self):
         if self._selected_luid is None:
             messagebox.showerror("Error", "You must select a row first.")
             return
         click_i = self._project._find_where('luid', self._selected_luid)
-        self.compare(click_i, 1)
+        self.compare(click_i, -1, command="sunflower")
 
-    def compare(self, start, direction):
+    def compare(self, start, direction, command="meld"):
         # ^ start may not be a version, so look for the related version below.
         if direction not in [-1, 1]:
             raise ValueError(
@@ -828,7 +831,12 @@ class MainFrame(SFContainer):
         to_i, to_range = self._project.get_affected(to_near_i)
         from_path = self._project._actions[from_i]['path']
         to_path = self._project._actions[to_i]['path']
-        c_args = ['meld', from_path, to_path]
+        if command == "sunflower":
+            c_args = [command, "-l", from_path, "-r", to_path, "-t"]
+            # -t, --no-load-tabs                 Skip loading additional tabs
+            # (as long a sunflower is closed, remembered tabs won't load)
+        else:
+            c_args = [command, from_path, to_path]
         subprocess.Popen(c_args)
 
 
