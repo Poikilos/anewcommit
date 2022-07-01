@@ -501,6 +501,9 @@ class MainFrame(SFContainer):
 
         self._project = None
         self.parent = parent
+        self.last_path = profile
+        # from pathlib import Path
+        # self.last_path = Path.home()
         SFContainer.__init__(self, parent, style='MainFrame.TFrame')
         # ttk.Frame.__init__(self, parent, style='MainFrame.TFrame')
         # ^ There seems to be no way to make a Frame scrollable.
@@ -535,7 +538,10 @@ class MainFrame(SFContainer):
         self.date_fmt = "%Y-%m-%d"
 
         self.fileMenu = tk.Menu(self.menu, tearoff=0)
-        self.fileMenu.add_command(label="Open", command=self.ask_open)
+        self.fileMenu.add_command(label="Add a source version...",
+                                  command=self.ask_open)
+        self.fileMenu.add_command(label="Add multiple source versions in...",
+                                  command=self.ask_open_all)
         self.fileMenu.add_command(label="Mark if has folder...",
                                   command=self.ask_mark_if_has_folder)
         self.fileMenu.add_command(label="Mark maximum file date...",
@@ -582,10 +588,37 @@ class MainFrame(SFContainer):
 
         self.wide_width = 30
 
+    def ask_open_all(self):
+        directory = filedialog.askdirectory(
+            initialdir=self.last_path,
+        )
+        if directory is None:
+            return
+        echo1()
+        echo1("directory={}".format(directory))
+        if len(directory) == 0:
+            # can be `()` (emtpy tuple).
+            return
+        elif directory.strip() == "":
+            return
+        self.add_versions_in(directory)
+
     def ask_open(self):
-        directory = filedialog.askdirectory()
-        if directory is not None:
-            self.add_versions_in(directory)
+        directory = filedialog.askdirectory(
+            initialdir=self.last_path,
+        )
+        if directory is None:
+            return
+        echo1()
+        echo1("directory={}".format(directory))
+        if len(directory) == 0:
+            # can be `()` (emtpy tuple).
+            return
+        elif directory.strip() == "":
+            return
+        if not self.append_source(directory):
+            messagebox.showerror("Error", 'Adding the directory failed.')
+        self.last_path = directory
 
     def ask_mark_all_if_has_folder(self):
         self.ask_mark_if_has_folder(do_all=True)
@@ -1499,6 +1532,8 @@ class MainFrame(SFContainer):
         if os.path.getsize(path) == 0:
             os.remove(path)
             return False
+        if os.path.isfile(path):
+            self.last_path = os.path.dirname(path)
         self._init_title_row()
         self._clear()
         self._project = ANCProject()
@@ -1599,6 +1634,8 @@ class MainFrame(SFContainer):
         self.dump(2)
 
     def add_versions_in(self, path):
+        if os.path.isdir(path):
+            self.last_path = path
         if self._project is None:
             self._project = ANCProject()
         else:
@@ -1633,7 +1670,7 @@ def usage():
 def main():
     global root
     root = tk.Tk()
-    root.geometry("500x600")
+    root.geometry("800x600")
     root.minsize(200, 100)
     root.title("anewcommit")
     versions_path = None
