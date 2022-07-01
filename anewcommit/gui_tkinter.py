@@ -18,6 +18,7 @@ __metaclass__ = type
 #   error-typeerror-argument-1-must-be-type-not-classobj-when>
 import os
 import sys
+
 # from decimal import Decimal
 # import decimal
 # import locale as lc
@@ -89,6 +90,7 @@ from anewcommit import (
     s2or3,
     newest_file_dt_in,
     split_statement,
+    open_file,
 )
 
 echos = []
@@ -782,12 +784,14 @@ class MainFrame(SFContainer):
                 'You must first run "Mark maximum file date..."',
             )
             return
-        messagebox.showinfo(
-            "Latest file",
+        answer = messagebox.askokcancel(
+            "Show latest file",
             newest_path,
         )
-
-
+        if answer is not True:
+            return
+        in_dir = os.path.dirname(newest_path)
+        open_file(in_dir)
 
 
     def on_click_row(self, luid):

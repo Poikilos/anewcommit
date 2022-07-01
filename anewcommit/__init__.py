@@ -4,6 +4,7 @@ from __future__ import print_function
 import sys
 import os
 import platform
+import subprocess
 import json
 from datetime import datetime, timezone
 import pathlib
@@ -122,8 +123,10 @@ def extract(src_file, new_parent_dir, auto_sub=True,
     """
     raise NotImplementedError("There is nothing implemented here yet.")
 
+default_ignores = ["Thumbs.db", ".DS_Store", "error_log", "temp"]
+
 def newest_file_dt_in(parent, too_new_dt=None, level=0,
-                      ignores=["Thumbs.db", ".DS_Store"]):
+                      ignores=default_ignores):
     '''
     Get the datetime of the latest file in parent recursively.
 
@@ -145,6 +148,8 @@ def newest_file_dt_in(parent, too_new_dt=None, level=0,
         if os.path.islink(subPath):
             continue
         if sub in ignores:
+            continue
+        if subPath in ignores:
             continue
         mdt = None
         m_path = None
@@ -174,6 +179,15 @@ def newest_file_dt_in(parent, too_new_dt=None, level=0,
             echo0("- no date < {} could be found in {}"
                   "".format(too_new_dt, subPath))
     return path, newest_dt
+
+def open_file(path):
+    # based on <https://stackoverflow.com/a/16204023/4541104>:
+    if platform.system() == "Windows":
+        os.startfile(path)
+    elif platform.system() == "Darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
 
 
 def split_statement(statement):
