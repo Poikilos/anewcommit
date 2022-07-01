@@ -28,6 +28,14 @@ from datetime import (
     datetime,
     # timedelta,
 )
+from dateutil import tz
+# tz.tzlocal()  # as per <https://stackoverflow.com/a/61124241/4541104>
+# then as per <https://stackoverflow.com/a/7065242/4541104>:
+# dt.replace(tzinfo=tz.tzlocal())
+# but it says you can also do:
+# import pytz
+# dt2 = pytz.utc.localize(dt1)
+
 
 python_mr = sys.version_info[0]
 
@@ -530,6 +538,8 @@ class MainFrame(SFContainer):
                                   command=self.ask_mark_if_has_folder)
         self.fileMenu.add_command(label="Mark maximum file date...",
                                   command=self.ask_mark_max_date_before)
+        self.fileMenu.add_command(label="Show latest file",
+                                  command=self.on_mc_show_latest_file)
         self.fileMenu.add_command(label="Exit", command=self.exitProgram)
         self.menu.add_cascade(label="File", menu=self.fileMenu)
 
@@ -627,7 +637,7 @@ class MainFrame(SFContainer):
             self.mark_max_date_before(max_date_str, selected_i=selected_i)
         except ValueError as ex:
             self.prefill_date = max_date_str
-            if "time data" in str(ex):
+            if "time data" in str(ex) or "unconverted data" in str(ex):
                 messagebox.showerror("Error", str(ex))
                 self.ask_mark_max_date_before(do_all=do_all)
             else:
@@ -640,6 +650,7 @@ class MainFrame(SFContainer):
         too_new_dt = None
         if too_new_date_str is not None:
             too_new_dt = datetime.strptime(too_new_date_str, self.date_fmt)
+            too_new_dt = too_new_dt.replace(tzinfo=tz.tzlocal())
         try:
             ranges = self._project.get_ranges()
         except Exception as ex:
@@ -671,7 +682,10 @@ class MainFrame(SFContainer):
                   "".format(version_i, _))
             action = self._project._actions[version_i]
             parent = action['path']
-            newest_dt = newest_file_dt_in(parent, too_new_dt=too_new_dt)
+            newest_path, newest_dt = newest_file_dt_in(
+                parent,
+                too_new_dt=too_new_dt,
+            )
             if newest_dt is not None:
                 date_str = newest_dt.strftime(self.date_fmt)
                 if len(date_str.strip()) == 0:
@@ -684,6 +698,7 @@ class MainFrame(SFContainer):
                 if version_i < min_index:
                     min_index = version_i
             action['date'] = date_str
+            action['newest_path'] = newest_path
             done += 1
 
         if min_index < len(self._project._actions):
@@ -746,6 +761,33 @@ class MainFrame(SFContainer):
                 "Info",
                 "{}/{} already marked".format(count-done, count),
             )
+
+    def on_mc_show_latest_file(self):
+        if self._selected_luid is None:
+            messagebox.showerror("Error", "You must select a source first.")
+            return
+        selected_i = self._project._find_where('luid', self._selected_luid)
+        version_i, _ = self._project.get_affected(selected_i)
+        if version_i != selected_i:
+            messagebox.showerror(
+                "Error",
+                "This operation only works on a source.",
+            )
+            return
+        action = self._project._actions[version_i]
+        newest_path = action.get('newest_path')
+        if newest_path is None:
+            messagebox.showerror(
+                "Error",
+                'You must first run "Mark maximum file date..."',
+            )
+            return
+        messagebox.showinfo(
+            "Latest file",
+            newest_path,
+        )
+
+
 
 
     def on_click_row(self, luid):

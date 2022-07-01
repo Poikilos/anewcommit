@@ -122,7 +122,8 @@ def extract(src_file, new_parent_dir, auto_sub=True,
     """
     raise NotImplementedError("There is nothing implemented here yet.")
 
-def newest_file_dt_in(parent, too_new_dt=None, level=0):
+def newest_file_dt_in(parent, too_new_dt=None, level=0,
+                      ignores=["Thumbs.db", ".DS_Store"]):
     '''
     Get the datetime of the latest file in parent recursively.
 
@@ -130,24 +131,36 @@ def newest_file_dt_in(parent, too_new_dt=None, level=0):
     too_new_dt -- skip files with a datetime >= too_new_dt if not None.
     level -- Determine the directory depth for debugging use only (doesn't
         affect results).
+
+    Returns:
+    a tuple (path, datetime)
     '''
+    if too_new_dt is not None:
+        if too_new_dt.tzinfo is None:
+            raise ValueError("The datetime is timezone-naive.")
+    path = None
     newest_dt = None
     for sub in os.listdir(parent):
         subPath = os.path.join(parent, sub)
         if os.path.islink(subPath):
             continue
+        if sub in ignores:
+            continue
         mdt = None
+        m_path = None
         if os.path.isfile(subPath):
             # mtime = os.path.getmtime(subPath)
             mtime = pathlib.Path(subPath).stat().st_mtime
             # ^ pathlib stat best cross-platform way according to
             #   <pynative.com/python-file-creation-modification-datetime/>
+            m_path = subPath
             mdt = datetime.fromtimestamp(mtime, tz=timezone.utc)
         elif os.path.isdir(subPath):
-            mdt = newest_file_dt_in(
+            m_path, mdt = newest_file_dt_in(
                 subPath,
                 too_new_dt=too_new_dt,
                 level=level+1,
+                ignores=ignores,
             )
         if mdt is None:
             # It must be an empty directory, or file dates are >= too_new_dt
@@ -155,11 +168,12 @@ def newest_file_dt_in(parent, too_new_dt=None, level=0):
         if (too_new_dt is None) or (mdt < too_new_dt):
             if (newest_dt is None) or (mdt > newest_dt):
                 newest_dt = mdt
+                path = m_path
     if newest_dt is None:
         if level == 0:
             echo0("- no date < {} could be found in {}"
                   "".format(too_new_dt, subPath))
-    return newest_dt
+    return path, newest_dt
 
 
 def split_statement(statement):
