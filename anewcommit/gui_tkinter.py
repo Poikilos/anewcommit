@@ -519,7 +519,7 @@ class MainFrame(SFContainer):
         self.parent.config(menu=self.menu)
         self.next_id = 0
         self._items = []
-        self.selection_color = "light blue"
+        self.selection_color = "black"
         self.bg_color = None
         self.prefill_date = None
         self.date_fmt = "%Y-%m-%d"
@@ -532,6 +532,13 @@ class MainFrame(SFContainer):
                                   command=self.ask_mark_max_date_before)
         self.fileMenu.add_command(label="Exit", command=self.exitProgram)
         self.menu.add_cascade(label="File", menu=self.fileMenu)
+
+        self.batchMenu = tk.Menu(self.menu, tearoff=0)
+        self.batchMenu.add_command(label="Mark if has folder...",
+                                  command=self.ask_mark_all_if_has_folder)
+        self.batchMenu.add_command(label="Mark maximum file date...",
+                                  command=self.ask_mark_all_max_date_before)
+        self.menu.add_cascade(label="Batch", menu=self.batchMenu)
 
         self.editMenu = tk.Menu(self.menu, tearoff=0)
         self.editMenu.add_command(label="Undo", command=self.undo)
@@ -568,7 +575,20 @@ class MainFrame(SFContainer):
         if directory is not None:
             self.add_versions_in(directory)
 
-    def ask_mark_if_has_folder(self):
+    def ask_mark_all_if_has_folder(self):
+        self.ask_mark_if_has_folder(do_all=True)
+
+    def ask_mark_if_has_folder(self, do_all=False):
+        selected_i = None
+        if not do_all:
+            if self._selected_luid is not None:
+                luid = self._selected_luid
+                selected_i = self._project._find_where('luid', luid)
+                if selected_i < 0:
+                    raise ValueError("LUID {} was not found.".format(luid))
+            else:
+                messagebox.showerror("Error", "You must select a row first.")
+                return
         default_str = ""
         if self.prefill_date is not None:
             default_str = self.prefill_date
@@ -578,10 +598,24 @@ class MainFrame(SFContainer):
             initialvalue=default_str,
         )
         if relPath is not None:
-            self.mark_if_has_folder(relPath)
+            self.mark_if_has_folder(relPath, selected_i=selected_i)
         # else The "Cancel" button was pressed.
 
-    def ask_mark_max_date_before(self):
+    def ask_mark_all_max_date_before(self):
+        self.ask_mark_max_date_before(do_all=True)
+
+    def ask_mark_max_date_before(self, do_all=False):
+        selected_i = None
+        if not do_all:
+            if self._selected_luid is not None:
+                luid = self._selected_luid
+                selected_i = self._project._find_where('luid', luid)
+                if selected_i < 0:
+                    raise ValueError("LUID {} was not found.".format(luid))
+            else:
+                messagebox.showerror("Error", "You must select a row first.")
+                return
+
         max_date_str = simpledialog.askstring(
             "Mark with maximum date",
             "What date is too new (YYYY-MM-DD or leave blank)?"
@@ -590,16 +624,16 @@ class MainFrame(SFContainer):
             # The "Cancel" button was pressed.
             return
         try:
-            self.mark_max_date_before(max_date_str)
+            self.mark_max_date_before(max_date_str, selected_i=selected_i)
         except ValueError as ex:
             self.prefill_date = max_date_str
             if "time data" in str(ex):
                 messagebox.showerror("Error", str(ex))
-                self.ask_mark_max_date_before()
+                self.ask_mark_max_date_before(do_all=do_all)
             else:
                 raise ex
 
-    def mark_max_date_before(self, too_new_date_str):
+    def mark_max_date_before(self, too_new_date_str, selected_i=None):
         if too_new_date_str is not None:
             if too_new_date_str.strip() == "":
                 too_new_date_str = None
@@ -611,12 +645,28 @@ class MainFrame(SFContainer):
         except Exception as ex:
             messagebox.showerror("Error", str(ex))
             raise ex
+        if selected_i is not None:
+            r = [selected_i]
+            ranges = [r]
         echo0("Processing {} version(s)".format(len(ranges)))
         count = 0
         done = 0
         min_index = len(self._project._actions)
+        if selected_i is not None:
+            r = [selected_i]
+            ranges = [r]
+            echo0("selected_i={}".format(selected_i))
+        elif self._selected_luid is not None:
+            echo0("WARNING: self._selected_luid but no selected_i")
         for r in ranges:
             version_i, _ = self._project.get_affected(r[0])
+            if selected_i is not None:
+                if selected_i != version_i:
+                    messagebox.showerror(
+                        "Error",
+                        "This operation only works on a source.",
+                    )
+                    return
             echo0("Processing version index {} in {}"
                   "".format(version_i, _))
             action = self._project._actions[version_i]
@@ -646,12 +696,33 @@ class MainFrame(SFContainer):
                 "{}/{} already marked".format(count-done, count),
             )
 
-    def mark_if_has_folder(self, relPath):
+    def mark_if_has_folder(self, relPath, selected_i=None):
         ranges = self._project.get_ranges()
         count = 0
         done = 0
+        if relPath is not None:
+            if relPath.strip() == "":
+                messagebox.showerror(
+                    "Error",
+                    "You must provide a name or path.",
+                )
+                return
+        if selected_i is not None:
+            r = [selected_i]
+            ranges = [r]
+            echo0("selected_i={}".format(selected_i))
+        elif self._selected_luid is not None:
+            echo0("WARNING: self._selected_luid but no selected_i")
+
         for r in ranges:
             version_i, _ = self._project.get_affected(r[0])
+            if selected_i is not None:
+                if selected_i != version_i:
+                    messagebox.showerror(
+                        "Error",
+                        "This operation only works on a source.",
+                    )
+                    return
             action = self._project._actions[version_i]
             parent = action['path']
             subPath = os.path.join(parent, relPath)
