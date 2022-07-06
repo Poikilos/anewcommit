@@ -89,7 +89,7 @@ from anewcommit import (
     substep_to_str,
     s2or3,
     newest_file_dt_in,
-    split_statement,
+    parse_statement,
     open_file,
 )
 
@@ -1138,17 +1138,18 @@ class MainFrame(SFContainer):
         statements = action.get('statements')
         if statements is not None:
             for statement in statements:
-                args = split_statement(statement)
-                command = args[0]
-                text = args[1]
+                cmd = parse_statement(statement)
+                command = cmd.get('command')
+                text = cmd.get('source')
+                if text is None:
+                    text = ""
                 widget = tk.Label(frame, text=text)
                 if command == "sub":
                     widget.bind("<Button-1>", lambda e, l=luid, st=statement: self.on_click_sub(l, st))
                 else:
-                    raise ValueError(
-                        'Unknown command "{}" in "{}"'
-                        ''.format(command, statement)
-                    )
+                    pass
+                    # There is nothing to do. If invalid,
+                    # parse_statement already raised an Exception.
                 widget.pack(side=tk.LEFT)
 
         frame.pack(fill=tk.X)

@@ -8,6 +8,8 @@ import subprocess
 import json
 from datetime import datetime, timezone
 import pathlib
+from io import StringIO
+import csv
 
 python_mr = sys.version_info[0]
 
@@ -191,13 +193,54 @@ def open_file(path):
 
 
 def split_statement(statement):
-    # TODO: split multiple arguments (respecting quotes)
-    spaceI = statement.find(" ")
-    command = statement[:spaceI]
-    text = statement[spaceI+1:]
-    if text.startswith('"') and text.endswith('"'):
-        text = text[1:-1]
-    return [command, text]
+    '''
+    Split a string of multiple arguments (respecting quotes) into a list.
+    '''
+    ins = StringIO(statement)
+    reader = csv.reader(ins, delimiter=" ")
+    parts = None
+    for row in reader:
+        if parts is not None:
+            RuntimeError("The statement must be only one line: '''\n{}\n'''"
+                         "".format(statement))
+        parts = row
+    for i in range(len(parts)):
+        if parts[i].startswith('"') and parts[i].endswith('"'):
+            parts[i] = parts[i][1:-1]
+        elif parts[i].startswith("'") and parts[i].endswith("'"):
+            parts[i] = parts[i][1:-1]
+    return parts
+
+def parse_statement(statement):
+    result = {}
+    parts = split_statement(statement)
+    if len(parts) > 0:
+        result['command'] = parts[0]
+    else:
+        raise ValueError('The command "{}" is blank'.format(statement))
+    if parts[0] == "sub":
+        if len(parts) != 2:
+            raise ValueError(
+                "The {} command has {} argument(s) but should have 1:"
+                " (source)"
+                "".format(statement, len(parts)-1)
+            )
+        result['source'] = parts[1]
+    elif parts[0] == "use":
+        if (len(parts) != 4) or (parts[2] != "as"):
+            raise ValueError(
+                'The {} command has {} argument(s) but should have 3:'
+                ' (source, "as", destination)'
+                ''.format(statement, len(parts)-1)
+            )
+        result['source'] = parts[1]
+        result['destination'] = parts[3]
+    else:
+        raise ValueError(
+            'The command "{}" is unknown in statement "{}"'
+            ''.format(parts[0], statement)
+        )
+    return result
 
 
 MODES = [
