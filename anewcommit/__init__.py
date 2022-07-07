@@ -211,6 +211,7 @@ def split_statement(statement):
             parts[i] = parts[i][1:-1]
     return parts
 
+
 def parse_statement(statement):
     result = {}
     parts = split_statement(statement)
@@ -241,6 +242,18 @@ def parse_statement(statement):
             ''.format(parts[0], statement)
         )
     return result
+
+
+def statement_to_caption(command_dict):
+    if not isinstance(command_dict, dict):
+        raise ValueError(
+            "You must provide the command such as from parse_statement()"
+        )
+
+    text = command_dict.get('source')
+    if text is None:
+        text = command_dict.get('command')
+    return text
 
 
 MODES = [
@@ -538,6 +551,28 @@ class ANCProject:
         self.append_action(action)
         return action
 
+    def insert_statement_where(self, luid, statement, direction=-1):
+        '''
+        Convert a statement to an action and insert it at the luid.
+
+        Keyword arguments:
+        direction -- if -1, to pre_process, if 1, post_process.
+        '''
+        action = _new_process()
+        if direction == -1:
+            action['verb'] = 'pre_process'
+        elif direction == -1:
+            action['verb'] = 'post_process'
+        else:
+            raise ValueError("The direction must be -1 or 1.")
+
+        if action['verb'] not in TRANSITION_VERBS:
+            raise ValueError("The verb must be one of {} not {}"
+                             "".format(TRANSITION_VERBS, action['verb']))
+
+        return self.insert_where(self, 'luid', luid, action,
+                                 direction=direction)
+
     def append_statement_where(self, luid, statement, force=False):
         '''
         Keyword arguments:
@@ -546,12 +581,7 @@ class ANCProject:
         Returns:
         True if added, otherwise false.
         '''
-        args = split_statement(statement)
-        if len(args) < 2:
-            raise ValueError(
-                'The statement "{}" does not resolve to >=2 parts: {}'
-                ''.format(statement, args)
-            )
+        parse_statement(statement)  # call this to validate/raise exception
         i = self._find_where('luid', luid)
         if self._actions[i].get('statements') is None:
             self._actions[i]['statements'] = []
@@ -755,6 +785,10 @@ class ANCProject:
         is a command in the form of a list, and a step is a list of
         lists (commands).
         '''
+        if index > len(self._actions):
+            raise IndexError("The index {} is beyond len {}"
+                             "".format(index, len(self._actions)))
+        # ^ insert at >=len actually works, so ensure the number is sane.
         self._actions.insert(index, action)
         echo1("* inserted [{}]: {}".format(index, action))
         echo1("  len {}".format(len(self._actions)))
@@ -817,19 +851,32 @@ class ANCProject:
             self.save()
 
 
-    def insert_where(self, name, value, action):
+    def insert_where(self, name, value, action, direction=-1):
         '''
         Sequential arguments:
         luid -- Insert before this luid.
         action -- Insert this action dictionary.
+
+        Keyword arguments:
+        direction -- -1 to insert before the match, 1 to insert afterward
+            (or after all related post-processing steps if any).
         '''
         newI = self._find_where(name, value)
+        if direction == -1:
+            pass  # newI is the index of the luid in this case.
+        elif direction == 1:
+            at_i, at_range = self.get_affected(newI)
+            newI = at_range[-1] + 1  # +1 so it is *after* any post_processes
+        else:
+            raise ValueError("The direction must be -1 or 1.")
+
         if newI < 0:
             raise ValueError("There is no '{}' {}".format(name, value))
         return self.insert(newI, action)
 
-    def insert_where_luid(self, luid, action):
-        return self.insert_where(self, 'luid', luid, action)
+    def insert_where_luid(self, luid, action, direction=-1):
+        return self.insert_where(self, 'luid', luid, action,
+                                 direction=direction)
 
     def remove_where(self, name, value):
         '''

@@ -90,6 +90,7 @@ from anewcommit import (
     s2or3,
     newest_file_dt_in,
     parse_statement,
+    statement_to_caption,
     open_file,
 )
 
@@ -555,7 +556,9 @@ class MainFrame(SFContainer):
         self.menu.add_cascade(label="File", menu=self.fileMenu)
 
         self.batchMenu = tk.Menu(self.menu, tearoff=0)
-        self.batchMenu.add_command(label="Mark if has folder...",
+        self.batchMenu.add_command(label="Preprocess where applicable...",
+                                   command=self.ask_preprocess_all_applicable)
+        self.batchMenu.add_command(label="Mark all containing a folder...",
                                   command=self.ask_mark_all_if_has_folder)
         self.batchMenu.add_command(label="Mark maximum file date...",
                                   command=self.ask_mark_all_max_date_before)
@@ -648,8 +651,40 @@ class MainFrame(SFContainer):
             initialvalue=default_str,
         )
         if relPath is not None:
-            self.mark_if_has_folder(relPath, selected_i=selected_i)
+            statement = 'sub "{}"'.format(relPath)
+            self.mark_if_has_folder(statement, selected_i=selected_i)
         # else The "Cancel" button was pressed.
+
+
+    def ask_preprocess_applicable(self, do_all=False):
+        default_str = ""
+        selected_i = None
+        if not do_all:
+            if self._selected_luid is None:
+                messagebox.showerror("Error", "Select a source first.")
+                return
+            selected_i = self._find('luid', self._selected_luid)
+            if selected_i < 0:
+                raise RuntimeError("selected luid {} doesn't exist."
+                                   "".format(self._selected_luid))
+        statement = simpledialog.askstring(
+            "Preprocess if has folder",
+            'Enter a statement such as: use "Primary Site" as www',
+            initialvalue=default_str,
+        )
+        if len(statement.strip()) == 0:
+            statement = None
+        if statement is None:
+            # Cancel button was pressed (or blank became None above)
+            return
+        try:
+            self.mark_if_has_folder(statement, selected_i=selected_i)
+        except ValueError as ex:
+            messagebox.showerror("Error", str(ex))
+            raise ex
+
+    def ask_preprocess_all_applicable(self):
+        self.ask_preprocess_applicable(do_all=True)
 
     def ask_mark_all_max_date_before(self):
         self.ask_mark_max_date_before(do_all=True)
@@ -733,7 +768,6 @@ class MainFrame(SFContainer):
             else:
                 date_str = "(no date in range)"
 
-            luid = action['luid']
             if action.get('date') != date_str:
                 if version_i < min_index:
                     min_index = version_i
@@ -751,17 +785,32 @@ class MainFrame(SFContainer):
                 "{}/{} already marked".format(count-done, count),
             )
 
-    def mark_if_has_folder(self, relPath, selected_i=None):
+    def mark_if_has_folder(self, statement, selected_i=None):
+        '''
+        Add a statement to the selection (or all if selected_i is None)
+        only if the source contains the relative source in the given statement.
+        '''
+        command = None
+        try:
+            command = parse_statement(statement)
+        except Exception as ex:
+            messagebox.showerror("Error", str(ex))
+            return
+
         ranges = self._project.get_ranges()
         count = 0
         done = 0
-        if relPath is not None:
-            if relPath.strip() == "":
-                messagebox.showerror(
-                    "Error",
-                    "You must provide a name or path.",
-                )
+        relPath = command.get('source')
+        if relPath.strip() == "":
+            relPath = None
+        if relPath is None:
+            yes = messagebox.askyesno(
+                "Confirm Mark All",
+                'There is no source param. Mark all unconditionally?',
+            )
+            if not yes:
                 return
+
         if selected_i is not None:
             r = [selected_i]
             ranges = [r]
@@ -780,16 +829,20 @@ class MainFrame(SFContainer):
                     return
             action = self._project._actions[version_i]
             parent = action['path']
-            subPath = os.path.join(parent, relPath)
-            if not os.path.isdir(subPath):
-                continue
+            subPath = None
+            if relPath is not None:
+                subPath = os.path.join(parent, relPath)
+                if not os.path.isdir(subPath):
+                    continue
             luid = action['luid']
-            statement = 'sub "{}"'.format(relPath)
             count += 1
             if not self._project.append_statement_where(luid, statement):
                 continue
             done += 1
-            widget = ttk.Label(self._items[version_i], text=relPath)
+            widget = ttk.Label(
+                self._items[version_i],
+                text=statement_to_caption(command),
+            )
             widget.pack(side=tk.LEFT)
             widget.bind(
                 "<Button-1>",
@@ -842,7 +895,7 @@ class MainFrame(SFContainer):
         min_index = self._find('luid', luid)
         yes = messagebox.askyesno(
             "clicked directory",
-            'Unmark as {}?'.format(statement),
+            'Unmark {}?'.format(statement),
         )
         if yes:
             self._project.remove_statement_where(luid, statement)
@@ -864,7 +917,7 @@ class MainFrame(SFContainer):
                                  "".format(self._selected_luid))
         # else allow deselecting (only if luid is None)
         old_frame = None
-        old_luid = self._selected_luid
+        # old_luid = self._selected_luid
         if self._selected_luid is not None:
             old_frame_i = self._find('luid', self._selected_luid)
             if old_frame_i > -1:
@@ -1206,12 +1259,9 @@ class MainFrame(SFContainer):
         if statements is not None:
             for statement in statements:
                 cmd = parse_statement(statement)
-                command = cmd.get('command')
-                text = cmd.get('source')
-                if text is None:
-                    text = ""
+                text = statement_to_caption(cmd)
                 widget = ttk.Label(frame, text=text)
-                if command == "sub":
+                if cmd.get('command') is not None:
                     widget.bind("<Button-1>", lambda e, l=luid, st=statement: self.on_click_sub(l, st))
                 else:
                     pass
