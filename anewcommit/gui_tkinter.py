@@ -204,6 +204,9 @@ version_template = {
 _GUI_DUMP = []
 _BACKEND_DUMP = []
 
+def to_style_key(luid, prefix="Row", suffix=".TFrame"):
+    return "{}{}{}".format(prefix, luid, suffix)
+
 
 def default_callback(*args, **kwargs):
     # sv.trace_add callback sends 3 sequential arguments:
@@ -514,7 +517,7 @@ class MainFrame(SFContainer):
         # List of tk style templates:
         #     <https://www.pythontutorial.net/tkinter/ttk-style/>
         self.style = ttk.Style(self)
-        self.style.configure('MainFrame.TFrame', background='gray')
+        # self.style.configure('MainFrame.TFrame', background='gray')
         # ^ See <https://www.pythontutorial.net/tkinter/ttk-style/>.
         #   The following didn't work:
         #   See <http://infohost.nmt.edu/tcc/help/pubs/tkinter/web/
@@ -784,7 +787,7 @@ class MainFrame(SFContainer):
             if not self._project.append_statement_where(luid, statement):
                 continue
             done += 1
-            widget = tk.Label(self._items[version_i], text=relPath)
+            widget = ttk.Label(self._items[version_i], text=relPath)
             widget.pack(side=tk.LEFT)
             widget.bind(
                 "<Button-1>",
@@ -859,6 +862,7 @@ class MainFrame(SFContainer):
                                  "".format(self._selected_luid))
         # else allow deselecting (only if luid is None)
         old_frame = None
+        old_luid = self._selected_luid
         if self._selected_luid is not None:
             old_frame_i = self._find('luid', self._selected_luid)
             if old_frame_i > -1:
@@ -868,12 +872,17 @@ class MainFrame(SFContainer):
         if new_frame is not None:
             self._selected_luid = luid
             if self.bg_color is None:
-                self.bg_color = new_frame.cget("background")
+                self.bg_color = new_frame.cget("background")  # tk
+                # self.bg_color = self.style.lookup("MainFrame.TFrame",
+                #                                   "background")  # ttk
             new_frame.configure(background=self.selection_color)
+            # self.style.configure(to_style_key(luid),
+            #                      self.selection_color)  # ttk
 
         if old_frame is not None:
             old_frame.configure(background=self.bg_color)
-
+            # self.style.configure(to_style_key(old_luid),
+            #                      background=self.bg_color)
 
     def on_var_changed(self, luid, key, var):
         echo1("on_var_changed: {}'s {} = {}"
@@ -1051,11 +1060,24 @@ class MainFrame(SFContainer):
             )
         echo1("* adding row at {}".format(row))
         frame = tk.Frame(self.scrollable_frame)
+        # ^ Using ttk.Frame for the row yields:
+        #   'TclError: unknown option "-background"'
+        #   so making a style for each luid would be necessary
+        #   but it doesn't seem to work (even if select_luid is
+        #   changed to affect the style):
+        # style_key = to_style_key(luid)
+        # self.style.configure(style_key, background='gray')
+        # frame = ttk.Frame(self.scrollable_frame, style=style_key)
+
         frame.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))
         if self.bg_color is None:
-            self.bg_color = frame.cget("background")
+            self.bg_color = frame.cget("background")  # tk
+            # self.bg_color = self.style.lookup("MainFrame.TFrame",
+            #                                   "background")  # ttk
         if luid == self._selected_luid:
-            frame.configure(background=self.selection_color)
+            frame.configure(background=self.selection_color)  # tk
+            # self.style.configure(style_key, background=self.selection_color)
+            # ^ ttk
         frame.data = action
         self._frame_of_luid[luid] = frame
         self._vars_of_luid[luid] = {}
@@ -1143,7 +1165,7 @@ class MainFrame(SFContainer):
                 text = cmd.get('source')
                 if text is None:
                     text = ""
-                widget = tk.Label(frame, text=text)
+                widget = ttk.Label(frame, text=text)
                 if command == "sub":
                     widget.bind("<Button-1>", lambda e, l=luid, st=statement: self.on_click_sub(l, st))
                 else:
@@ -1517,14 +1539,14 @@ class MainFrame(SFContainer):
         if self._added_title_row:
             return
         self._added_title_row = True
-        frame = tk.Frame(self.scrollable_frame)
+        titleRowFrame = ttk.Frame(self.scrollable_frame)
         for caption in actions_captions:
             widget = ttk.Label(
-                frame,
+                titleRowFrame,
                 text=caption,
             )
             widget.pack(side=tk.LEFT)
-        frame.pack(fill=tk.X)
+        titleRowFrame.pack(fill=tk.X)
 
     def append_version(self, path):
         return self.append_source(path)
