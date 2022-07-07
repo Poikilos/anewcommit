@@ -575,6 +575,8 @@ class MainFrame(SFContainer):
         self.editMenu.entryconfig("Redo", state=tk.DISABLED)
 
         self.viewMenu = tk.Menu(self.menu, tearoff=0)
+        self.viewMenu.add_command(label="View step in Sunflower",
+                                  command=self.on_mc_view_step)
         self.viewMenu.add_command(label="View changes in Sunflower",
                                   command=self.on_mc_view_changes_sunflower)
         self.viewMenu.add_command(label="View changes in Meld",
@@ -960,6 +962,49 @@ class MainFrame(SFContainer):
             return
         click_i = self._project._find_where('luid', self._selected_luid)
         self.compare(click_i, -1, command="sunflower")
+
+    def on_mc_view_step(self):
+        if self._selected_luid is None:
+            messagebox.showerror("Error", "You must select a row first.")
+            return
+        click_i = self._project._find_where('luid', self._selected_luid)
+        try:
+            self.view_step(click_i, command="sunflower")
+        except Exception as ex:
+            messagebox.showerror("Error", str(ex))
+
+    def view_step(self, click_i, command="sunflower"):
+        from_i, from_range = self._project.get_affected(click_i)
+        from_action = self._project._actions[from_i]
+        action = self._project._actions[click_i]
+        from_path = from_action['path']
+        if from_i == click_i:
+            to_path = from_path
+            if not os.path.isdir(to_path):
+                raise ValueError('"{}" does not exist.'.format(to_path))
+        elif from_i > click_i:
+            cmd = parse_statement(action['command'])
+            to_path = os.path.join(from_path, cmd['source'])
+            echo0("to_path={}".format(to_path))
+            if not os.path.isdir(to_path):
+                raise ValueError(
+                    '"{}" does not exist.'
+                    ' Change the step to use a subfolder of "{}".'
+                    ''.format(to_path, from_path)
+                )
+        else:
+            raise NotImplementedError(
+                "A preview requiring post-processing is not implemented."
+            )
+        if command == "sunflower":
+            c_args = [command, "-l", to_path, "-t"]
+            # -l, --left-tab=DIRECTORY        Open new tab on the left notebook
+            #   (still necessary even if loading one path)
+            # -t, --no-load-tabs              Skip loading additional tabs
+            #   (as long a sunflower is closed, remembered tabs won't load)
+        else:
+            c_args = [command, to_path]
+        subprocess.Popen(c_args)
 
     def compare(self, start, direction, command="meld"):
         # ^ start may not be a version, so look for the related version below.
