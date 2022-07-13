@@ -228,14 +228,21 @@ def parse_statement(statement):
             )
         result['source'] = parts[1]
     elif parts[0] == "use":
-        if (len(parts) != 4) or (parts[2] != "as"):
+        if (len(parts) == 4) and (parts[2] == "as"):
+            # use <source> as <destination>
+            result['source'] = parts[1]
+            result['destination'] = parts[3]
+        elif (len(parts) == 3) and (parts[1] == "as"):
+            # The whole thing is the sourse in a "use as" statement like
+            # use as <destination>
+            result['destination'] = parts[2]
+        else:
             raise ValueError(
-                'The {} command has {} argument(s) but should have 3:'
+                'The {} command has {} argument(s) but should have 2 or 3:'
                 ' (source, "as", destination)'
+                ' or ("as", destination)'
                 ''.format(statement, len(parts)-1)
             )
-        result['source'] = parts[1]
-        result['destination'] = parts[3]
     else:
         raise ValueError(
             'The command "{}" is unknown in statement "{}"'
@@ -250,7 +257,9 @@ def statement_to_caption(command_dict):
             "You must provide the command such as from parse_statement()"
         )
 
-    text = command_dict.get('source')
+    text = command_dict.get('destination')
+    if text is None:
+        text = command_dict.get('source')
     if text is None:
         text = command_dict.get('command')
     return text

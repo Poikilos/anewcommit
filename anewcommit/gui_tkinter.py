@@ -546,8 +546,8 @@ class MainFrame(SFContainer):
                                   command=self.ask_open)
         self.fileMenu.add_command(label="Add multiple source versions in...",
                                   command=self.ask_open_all)
-        self.fileMenu.add_command(label="Mark if has folder...",
-                                  command=self.ask_mark_if_has_folder)
+        self.fileMenu.add_command(label="Add a preprocess command...",
+                                  command=self.ask_preprocess)
         self.fileMenu.add_command(label="Mark maximum file date...",
                                   command=self.ask_mark_max_date_before)
         self.fileMenu.add_command(label="Show latest file",
@@ -558,8 +558,6 @@ class MainFrame(SFContainer):
         self.batchMenu = tk.Menu(self.menu, tearoff=0)
         self.batchMenu.add_command(label="Preprocess where applicable...",
                                    command=self.ask_preprocess_all_applicable)
-        self.batchMenu.add_command(label="Mark all containing a folder...",
-                                  command=self.ask_mark_all_if_has_folder)
         self.batchMenu.add_command(label="Mark maximum file date...",
                                   command=self.ask_mark_all_max_date_before)
         self.menu.add_cascade(label="Batch", menu=self.batchMenu)
@@ -628,33 +626,6 @@ class MainFrame(SFContainer):
             messagebox.showerror("Error", 'Adding the directory failed.')
         self.last_path = directory
 
-    def ask_mark_all_if_has_folder(self):
-        self.ask_mark_if_has_folder(do_all=True)
-
-    def ask_mark_if_has_folder(self, do_all=False):
-        selected_i = None
-        if not do_all:
-            if self._selected_luid is not None:
-                luid = self._selected_luid
-                selected_i = self._project._find_where('luid', luid)
-                if selected_i < 0:
-                    raise ValueError("LUID {} was not found.".format(luid))
-            else:
-                messagebox.showerror("Error", "You must select a row first.")
-                return
-        default_str = ""
-        if self.prefill_date is not None:
-            default_str = self.prefill_date
-        relPath = simpledialog.askstring(
-            "Mark if has folder",
-            "What is the folder relative to the version's base?",
-            initialvalue=default_str,
-        )
-        if relPath is not None:
-            statement = 'sub "{}"'.format(relPath)
-            self.mark_if_has_folder(statement, selected_i=selected_i)
-        # else The "Cancel" button was pressed.
-
 
     def ask_preprocess_applicable(self, do_all=False):
         default_str = ""
@@ -685,6 +656,9 @@ class MainFrame(SFContainer):
 
     def ask_preprocess_all_applicable(self):
         self.ask_preprocess_applicable(do_all=True)
+
+    def ask_preprocess(self):
+        self.ask_preprocess_applicable(do_all=False)
 
     def ask_mark_all_max_date_before(self):
         self.ask_mark_max_date_before(do_all=True)
@@ -801,20 +775,24 @@ class MainFrame(SFContainer):
         count = 0
         done = 0
         relPath = command.get('source')
-        if relPath.strip() == "":
-            relPath = None
-        if relPath is None:
-            yes = messagebox.askyesno(
-                "Confirm Mark All",
-                'There is no source param. Mark all unconditionally?',
-            )
-            if not yes:
-                return
+        if relPath is not None:
+            if relPath.strip() == "":
+                relPath = None
+            if relPath is None:
+                yes = messagebox.askyesno(
+                    "Confirm Mark All",
+                    'There is no source param. Mark all unconditionally?',
+                )
+                if not yes:
+                    return
+        # else it is a "use as <destination>" statement
+        # so don't check for a folder, just use it as the
+        # given destination.
 
         if selected_i is not None:
             r = [selected_i]
             ranges = [r]
-            echo0("selected_i={}".format(selected_i))
+            echo1("selected_i={}".format(selected_i))
         elif self._selected_luid is not None:
             echo0("WARNING: self._selected_luid but no selected_i")
 
