@@ -665,6 +665,8 @@ class MainFrame(SFContainer):
 
     def ask_mark_max_date_before(self, do_all=False):
         selected_i = None
+        result_path = None
+        result_date = None
         if not do_all:
             if self._selected_luid is not None:
                 luid = self._selected_luid
@@ -683,20 +685,35 @@ class MainFrame(SFContainer):
             # The "Cancel" button was pressed.
             return
         try:
-            self.mark_max_date_before(max_date_str, selected_i=selected_i)
+            result_path, result_date = self.mark_max_date_before(
+                max_date_str,
+                selected_i=selected_i,
+            )
+            if result_path is not None:
+                yes = messagebox.askyesno(
+                    "Newest file in range", 'Open "{}" from {}?'
+                    ''.format(result_path, result_date)
+                )
+                if yes:
+                    open_file(result_path)
         except ValueError as ex:
             self.prefill_date = max_date_str
             if "time data" in str(ex) or "unconverted data" in str(ex):
                 messagebox.showerror("Error", str(ex))
-                self.ask_mark_max_date_before(do_all=do_all)
+                result_path, result_date = self.ask_mark_max_date_before(
+                    do_all=do_all,
+                )
             else:
                 raise ex
+        return result_path, result_date
 
     def mark_max_date_before(self, too_new_date_str, selected_i=None):
         if too_new_date_str is not None:
             if too_new_date_str.strip() == "":
                 too_new_date_str = None
         too_new_dt = None
+        result_path = None
+        result_date = None
         if too_new_date_str is not None:
             too_new_dt = datetime.strptime(too_new_date_str, self.date_fmt)
             too_new_dt = too_new_dt.replace(tzinfo=tz.tzlocal())
@@ -747,6 +764,8 @@ class MainFrame(SFContainer):
                     min_index = version_i
             action['date'] = date_str
             action['newest_path'] = newest_path
+            result_path = newest_path
+            result_date = date_str
             done += 1
 
         if min_index < len(self._project._actions):
@@ -758,6 +777,7 @@ class MainFrame(SFContainer):
                 "Info",
                 "{}/{} already marked".format(count-done, count),
             )
+        return result_path, result_date
 
     def mark_if_has_folder(self, statement, selected_i=None):
         '''
