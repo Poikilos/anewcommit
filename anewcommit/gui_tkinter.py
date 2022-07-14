@@ -843,9 +843,10 @@ class MainFrame(SFContainer):
             )
             widget.pack(side=tk.LEFT)
             widget.bind(
-                "<Button-1>",
-                lambda e, l=luid, st=statement: self.on_click_sub(l, st),
+                "<Button>",
+                lambda e, l=luid, st=statement: self.on_click_sub(e, l, st),
             )
+            # ^ also done in _append_row
 
         if (count > 0) and  (done < count):
             messagebox.showinfo(
@@ -889,7 +890,7 @@ class MainFrame(SFContainer):
     def on_click_date(self, luid):
         self.on_click_row(luid)
 
-    def on_click_sub(self, luid, statement):
+    def on_right_click_sub(self, luid, statement):
         min_index = self._find('luid', luid)
         yes = messagebox.askyesno(
             "clicked directory",
@@ -899,6 +900,71 @@ class MainFrame(SFContainer):
             self._project.remove_statement_where(luid, statement)
             self._reload_at(min_index, "remove sub")
         self.on_click_row(luid)
+
+    def on_click_sub(self, event, luid, statement):
+        if event.num == 1:
+            self.on_left_click_sub(luid, statement)
+        else:
+            self.on_right_click_sub(luid, statement)
+
+    def on_left_click_sub(self, luid, statement):
+        if not statement.startswith("use "):
+            messagebox.showerror(
+                "Nothing to do",
+                'There is no "use" statement so there is nothing to open.'
+            )
+            return
+        to_command = parse_statement(statement)
+        if 'destination' not in to_command:
+            messagebox.showerror(
+                "Nothing to do",
+                'There is no destination in the statement.'
+            )
+            return
+        to_i = self._find('luid', luid)
+        to_action = self._project._actions[to_i]
+        from_action = None
+        from_i = None
+        from_source = None
+        to_source = to_command.get('source')
+        for try_i in reversed(range(0, to_i)):
+            try_action = self._project._actions[try_i]
+            try_statements = try_action.get('statements')
+            if try_statements is None:
+                continue
+            for try_statement in try_statements:
+                try_command = None
+                try:
+                    try_command = parse_statement(try_statement)
+                except ValueError as ex:
+                    echo0("'{}' failed since: {}".format(try_statement, ex))
+                    continue
+                destination = try_command.get('destination')
+                if destination is None:
+                    continue
+                if destination == to_command['destination']:
+                    from_action = try_action
+                    from_source = try_command.get('source')
+                    break
+            if from_action is not None:
+                break
+        if from_action is None:
+            source_msg = ""
+            messagebox.showinfo(
+                "Info",
+                ("{} is the 1st version of {} so there is nothing to compare."
+                 "".format(to_action['name'], to_command['destination'])),
+            )
+            return
+        to_path = to_action['path']
+        if to_source is not None:
+            to_path = os.path.join(to_path, to_source)
+        from_path = from_action['path']
+        if from_source is not None:
+            from_path = os.path.join(from_path, from_source)
+
+        self.compare_paths(from_path, to_path)
+
 
     def select_luid(self, luid):
         min_index = -1
@@ -1086,6 +1152,9 @@ class MainFrame(SFContainer):
         to_i, to_range = self._project.get_affected(to_near_i)
         from_path = self._project._actions[from_i]['path']
         to_path = self._project._actions[to_i]['path']
+        self.compare_paths(from_path, to_path, command=command)
+
+    def compare_paths(self, from_path, to_path, command="meld"):
         if command == "sunflower":
             c_args = [command, "-l", from_path, "-r", to_path, "-t"]
             # -t, --no-load-tabs                 Skip loading additional tabs
@@ -1093,7 +1162,6 @@ class MainFrame(SFContainer):
         else:
             c_args = [command, from_path, to_path]
         subprocess.Popen(c_args)
-
 
     def _append_row(self, action):
         '''
@@ -1260,7 +1328,8 @@ class MainFrame(SFContainer):
                 text = statement_to_caption(cmd)
                 widget = ttk.Label(frame, text=text)
                 if cmd.get('command') is not None:
-                    widget.bind("<Button-1>", lambda e, l=luid, st=statement: self.on_click_sub(l, st))
+                    widget.bind("<Button>", lambda e, l=luid, st=statement: self.on_click_sub(e, l, st))
+                    # ^ also done in mark_if_has_folder
                 else:
                     pass
                     # There is nothing to do. If invalid,
