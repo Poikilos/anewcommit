@@ -544,8 +544,8 @@ class MainFrame(SFContainer):
                                   command=self.ask_open)
         self.fileMenu.add_command(label="Add multiple source versions in...",
                                   command=self.ask_open_all)
-        self.fileMenu.add_command(label="Add a preprocess command...",
-                                  command=self.ask_preprocess)
+        self.fileMenu.add_command(label="Add a statement (process a source)...",
+                                  command=self.ask_statement)
         self.fileMenu.add_command(label="Mark maximum file date...",
                                   command=self.ask_mark_max_date_before)
         self.fileMenu.add_command(label="Show latest file",
@@ -554,8 +554,8 @@ class MainFrame(SFContainer):
         self.menu.add_cascade(label="File", menu=self.fileMenu)
 
         self.batchMenu = tk.Menu(self.menu, tearoff=0)
-        self.batchMenu.add_command(label="Preprocess where applicable...",
-                                   command=self.ask_preprocess_all_applicable)
+        self.batchMenu.add_command(label="Add a statement where applicable...",
+                                   command=self.ask_statement_all_applicable)
         self.batchMenu.add_command(label="Mark maximum file date...",
                                   command=self.ask_mark_all_max_date_before)
         self.menu.add_cascade(label="Batch", menu=self.batchMenu)
@@ -625,7 +625,7 @@ class MainFrame(SFContainer):
         self.last_path = directory
 
 
-    def ask_preprocess_applicable(self, do_all=False):
+    def ask_statement_applicable(self, do_all=False):
         default_str = ""
         selected_i = None
         if not do_all:
@@ -637,8 +637,9 @@ class MainFrame(SFContainer):
                 raise RuntimeError("selected luid {} doesn't exist."
                                    "".format(self._selected_luid))
         statement = simpledialog.askstring(
-            "Preprocess if has folder",
-            'Enter a statement such as: use "Primary Site" as www',
+            "Add a statement",
+            ('To use a folder such as "Primary Site" if present in the source,'
+             ' enter a statement such as: use "Primary Site" as www'),
             initialvalue=default_str,
         )
         if len(statement.strip()) == 0:
@@ -652,11 +653,11 @@ class MainFrame(SFContainer):
             messagebox.showerror("Error", str(ex))
             raise ex
 
-    def ask_preprocess_all_applicable(self):
-        self.ask_preprocess_applicable(do_all=True)
+    def ask_statement_all_applicable(self):
+        self.ask_statement_applicable(do_all=True)
 
-    def ask_preprocess(self):
-        self.ask_preprocess_applicable(do_all=False)
+    def ask_statement(self):
+        self.ask_statement_applicable(do_all=False)
 
     def ask_mark_all_max_date_before(self):
         self.ask_mark_max_date_before(do_all=True)
@@ -934,6 +935,7 @@ class MainFrame(SFContainer):
             self.on_left_click_sub(luid, statement)
         else:
             self.on_right_click_sub(luid, statement)
+        self.on_click_row(luid)
 
     def on_left_click_sub(self, luid, statement):
         if not statement.startswith("use "):
@@ -1178,6 +1180,8 @@ class MainFrame(SFContainer):
         to_i, to_range = self._project.get_affected(to_near_i)
         from_path = self._project._actions[from_i]['path']
         to_path = self._project._actions[to_i]['path']
+        echo1('compare: {} "{}" "{}"'
+              ''.format(command, from_path, to_path))
         self.compare_paths(from_path, to_path, command=command)
 
     def compare_paths(self, from_path, to_path, command="meld"):
