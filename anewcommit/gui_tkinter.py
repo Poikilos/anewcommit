@@ -746,10 +746,40 @@ class MainFrame(SFContainer):
                   "".format(version_i, _))
             action = self._project._actions[version_i]
             parent = action['path']
-            newest_path, newest_dt = newest_file_dt_in(
-                parent,
-                too_new_dt=too_new_dt,
-            )
+            sources = []
+            statements = action.get('statements')
+            if statements is not None:
+                echo1("len(statements)={}".format(len(statements)))
+                for statement in statements:
+                    command = parse_statement(statement)
+                    if 'destination' not in command:
+                        continue
+                    source = command.get('source')
+                    if source is None:
+                        continue
+                        # There is no source, so the whole thing is the source
+                        # (there shouldn't be any other "use" statements in
+                        # this case).
+                    sources.append(os.path.join(parent, source))
+                    echo1("source={}".format(source))
+            if len(sources) == 0:
+                # If there are no specified subprojects in the source,
+                #   use the entire source:
+                sources = [parent]
+            echo1("len(sources)={}".format(len(sources)))
+
+            newest_path = None
+            newest_dt = None
+            for source in sources:
+                this_path, this_dt = newest_file_dt_in(
+                    source,
+                    too_new_dt=too_new_dt,
+                )
+                if this_dt is None:
+                    continue
+                if (newest_dt is None) or (this_dt > newest_dt):
+                    newest_dt = this_dt
+                    newest_path = this_path
             if newest_dt is not None:
                 date_str = newest_dt.strftime(self.date_fmt)
                 if len(date_str.strip()) == 0:

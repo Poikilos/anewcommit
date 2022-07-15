@@ -15,6 +15,8 @@ snapshots of subprojects).
   - Choose "post-process" to make a copy of the previous version with the
     change.
   - Choose "pre-process" to make a copy of the next version with the change.
+- The "Mark" date features only use the directories specified using "use"
+  statements if any "use" statement exists on the source(s) being marked.
 
 ## Planned Features
 - Split into "subprojects" and commit to separate repositories where
