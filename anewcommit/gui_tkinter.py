@@ -125,14 +125,14 @@ version_field_order = ['commit', 'date', 'mode', 'name']
 dt_format =  "%Y-%m-%d %H:%M:%S"
 date_format =  "%Y-%m-%d"
 
-field_widths = {}
+default_field_widths = {}
 selector_width = verb_width
 if mode_width > selector_width:
     selector_width = mode_width
-field_widths['verb'] = selector_width
-field_widths['mode'] = selector_width
-field_widths['date'] = len(datetime.now().strftime(date_format))
-# field_widths['commit'] = 5
+default_field_widths['verb'] = selector_width
+default_field_widths['mode'] = selector_width
+default_field_widths['date'] = len(datetime.now().strftime(date_format))
+# default_field_widths['commit'] = 5
 
 conditional_formatting = {
     'verb': {
@@ -142,7 +142,7 @@ conditional_formatting = {
     },
 }
 # TODO: (?) Implement conditional_formatting (not necessary if using
-# separate version_template_fields below).
+#   separate version_template_fields below).
 
 _version_template_fields = {
     'luid': {
@@ -152,7 +152,7 @@ _version_template_fields = {
         'hide': True,
     },
     'date': {
-        'maxchars': field_widths['date'],
+        'maxchars': default_field_widths['date'],
         'widget': 'Entry',
     },
     'verb': {
@@ -191,14 +191,14 @@ _transition_template_fields = {
 transition_template = {
     'fields': _transition_template_fields,
     'field_order': transition_field_order,
-    'field_widths': field_widths,
+    'field_widths': default_field_widths,
 }
 # ^ modified later to include lambdas calling class methods.
 
 version_template = {
     'fields': _version_template_fields,
     'field_order': version_field_order,
-    'field_widths': field_widths,
+    'field_widths': default_field_widths,
 }
 # ^ modified later to include lambdas calling class methods.
 
@@ -264,14 +264,12 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
     all_done = {}
     for key in d.keys():
         all_done[key] = False
-    del key
     fields_done = all_done
     if field_order is None:
         field_order = d.keys()
         fields_done = {}
         for key in field_order:
             fields_done[key] = False
-        del key
 
     results = {}
     results['widgets'] = {}
@@ -924,7 +922,7 @@ class MainFrame(SFContainer):
         to_i = self._find('luid', luid)
         to_action = self._project._actions[to_i]
         from_action = None
-        from_i = None
+        # from_i = None
         from_source = None
         to_source = to_command.get('source')
         for try_i in reversed(range(0, to_i)):
@@ -949,7 +947,6 @@ class MainFrame(SFContainer):
             if from_action is not None:
                 break
         if from_action is None:
-            source_msg = ""
             messagebox.showinfo(
                 "Info",
                 ("{} is the 1st version of {} so there is nothing to compare."
@@ -964,7 +961,6 @@ class MainFrame(SFContainer):
             from_path = os.path.join(from_path, from_source)
 
         self.compare_paths(from_path, to_path)
-
 
     def select_luid(self, luid):
         min_index = -1
@@ -986,7 +982,6 @@ class MainFrame(SFContainer):
             old_frame_i = self._find('luid', self._selected_luid)
             if old_frame_i > -1:
                 old_frame = self._items[old_frame_i]
-
 
         if new_frame is not None:
             self._selected_luid = luid
@@ -1029,7 +1024,7 @@ class MainFrame(SFContainer):
             action[key] = new_v
             # TODO: Add an undo step but not for every character typed.
         else:
-            ValueError(
+            raise ValueError(
                 "on_var_changed doesn't account for the unknown key"
                 " (self type is {}, luid={}, key={}, var.get()={})"
                 "".format(type(self).__name__, json.dumps(luid),
@@ -1089,6 +1084,7 @@ class MainFrame(SFContainer):
             self.view_step(click_i, command="sunflower")
         except Exception as ex:
             messagebox.showerror("Error", str(ex))
+            raise ex
 
     def view_step(self, click_i, command="sunflower"):
         from_i, from_range = self._project.get_affected(click_i)
@@ -1323,12 +1319,15 @@ class MainFrame(SFContainer):
 
         statements = action.get('statements')
         if statements is not None:
-            for statement in statements:
-                cmd = parse_statement(statement)
+            for _st in statements:
+                cmd = parse_statement(_st)
                 text = statement_to_caption(cmd)
                 widget = ttk.Label(frame, text=text)
                 if cmd.get('command') is not None:
-                    widget.bind("<Button>", lambda e, l=luid, st=statement: self.on_click_sub(e, l, st))
+                    widget.bind(
+                        "<Button>",
+                        lambda e, l=luid, st=_st: self.on_click_sub(e, l, st),
+                    )
                     # ^ also done in mark_if_has_folder
                 else:
                     pass
@@ -1754,12 +1753,12 @@ class MainFrame(SFContainer):
         return False
 
     def dump(self, level):
-        global _GUI_DUMP
-        global _BACKEND_DUMP
         '''
         Sequential arguments:
         level -- Set what level of verbosity this dump affects.
         '''
+        global _GUI_DUMP
+        global _BACKEND_DUMP
         echos[level]("DUMP len: {}".format(len(self._items)))
         _GUI_DUMP = []
         for i in range(len(self._items)):
@@ -1851,6 +1850,7 @@ class MainFrame(SFContainer):
 def usage():
     echo0(__doc__)
 
+root = None
 
 def main():
     global root
@@ -1903,10 +1903,10 @@ def main():
 
     app = MainFrame(root, settings=settings)
     if versions_path is not None:
-        tryProject = os.path.join(versions_path, "anewcommit.json")
+        try_project = os.path.join(versions_path, "anewcommit.json")
         loaded = False
-        if os.path.isfile(tryProject):
-            loaded = app.load_project(tryProject)
+        if os.path.isfile(try_project):
+            loaded = app.load_project(try_project)
         if not loaded:
             app.add_versions_in(versions_path)
 
