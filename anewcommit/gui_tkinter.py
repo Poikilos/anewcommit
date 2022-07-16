@@ -1448,8 +1448,6 @@ class MainFrame(SFContainer):
             # self.dump2()
             echo1("  len: {}".format(old_len))
             for index in reversed(range(min_index, old_len)):
-                path = self.path_of_index(index)
-                echo2("  * removing [{}] {} after {}".format(index, path, do_s))
                 self._remove(index)
             # self.dump2()
 
@@ -1472,17 +1470,16 @@ class MainFrame(SFContainer):
         del self._items[:]
 
     def path_of_index(self, index):
-        path = self._project._actions[index].get('path')
+        if index < len(self._project._actions):
+            path = self._project._actions[index].get('path')
+        else:
+            raise ValueError("Index {} is not in the project.".format(index))
 
     def _remove(self, index):
         '''
         Remove a row at the given index. This action is private since the item
         should also be removed from the backend list.
         '''
-        path = self.path_of_index(index)
-        if path is None:
-            echo1("  * index {} has no path record in the GUI (ok if not version)."
-                  "".format(index))
         self._items[index].pack_forget()
         del self._items[index]
 
@@ -1749,10 +1746,6 @@ class MainFrame(SFContainer):
                 name = os.path.split(path)[1]
             echos[level]("- data of widget [{}]: path~={}"
                          "".format(i, name))
-            path = self.path_of_index(i)
-            name = path
-            if path is not None:
-                name = os.path.split(path)[1]
             echos[level]("  - path~={}".format(name))
             if path is not None:
                 index = self._project._find_where('path', path)

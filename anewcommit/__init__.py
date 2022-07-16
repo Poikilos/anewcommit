@@ -320,6 +320,7 @@ TRANSITION_VERBS = [
     'pre_process',
     'post_process',
     'no_op',
+    'for_every_source',
 ]
 
 # The special verb is get_version, and is added via add_version.
@@ -679,7 +680,7 @@ class ANCProject:
             if version_i is None:
                 if action['verb'] in VERSION_VERBS:
                     version_i = i
-                elif action['verb'] != 'pre_process':
+                elif action['verb'] == 'post_process':
                     raise ValueError(
                         "{} occurs before a version"
                         "".format(action['verb'])
