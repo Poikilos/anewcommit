@@ -480,11 +480,6 @@ class MainFrame(SFContainer):
     _frame_of_luid -- _frame_of_luid[luid] is the row, in the form of a
         frame, that represents the action (verb can be "get_version" or
         a transition verb) uniquely identified by a luid.
-    _id_of_path -- _id_of_path[path] is the luid of the path. The path
-        must appear only one time in the project (Theoretically it
-        could appear more than once but either the commit would be a
-        reversion or there would have to be some other operation that
-        modifies it before a commit).
     _vars_of_luid -- _vars_of_luid[luid][key] is the widget of
         the action for the action uniquely identified by luid.
     '''
@@ -523,8 +518,6 @@ class MainFrame(SFContainer):
         #   ttk-style-layer.html>
         #   via <https://stackoverflow.com/a/16639454>
         self._selected_luid = None
-        self._id_of_path = {}
-        self._index_of_path = {}
         self._vars_of_luid = {}
         self._frame_of_luid = {}
         self._key_of_name = {}
@@ -620,6 +613,7 @@ class MainFrame(SFContainer):
             return
         elif directory.strip() == "":
             return
+
         if not self.append_source(directory):
             messagebox.showerror("Error", 'Adding the directory failed.')
         self.last_path = directory
@@ -1235,17 +1229,6 @@ class MainFrame(SFContainer):
             this_template = version_template
             options['mode'] = anewcommit.MODES
             echo1("- version: {}".format(action))
-            path = action.get('path')
-            # name = None
-            # if path is not None:
-            name = os.path.split(path)[1]
-            if path in self._id_of_path:
-                raise ValueError(
-                    "Path [{}] already exists at {}: {}"
-                    "".format(row, self._index_of_path[path], path)
-                )
-            self._id_of_path[path] = luid
-            self._index_of_path[path] = row
         else:
             raise ValueError(
                 "The verb must be: {}"
@@ -1487,14 +1470,9 @@ class MainFrame(SFContainer):
         for i in range(len(self._items)):
             self._items[i].pack_forget()
         del self._items[:]
-        self._id_of_path = {}
-        self._index_of_path = {}
 
     def path_of_index(self, index):
-        for path, tryIndex in self._index_of_path.items():
-            if tryIndex == index:
-                return path
-        return None
+        path = self._project._actions[index].get('path')
 
     def _remove(self, index):
         '''
@@ -1505,17 +1483,8 @@ class MainFrame(SFContainer):
         if path is None:
             echo1("  * index {} has no path record in the GUI (ok if not version)."
                   "".format(index))
-        else:
-            del self._id_of_path[path]
-            del self._index_of_path[path]
         self._items[index].pack_forget()
         del self._items[index]
-        # Remember to change _index_of_path starting at index
-        # even if this one doesn't have a path:
-        for i in range(index, len(self._items)):
-            path = self._items[i].data.get('path')
-            if path is not None:
-                self._index_of_path[path] = i
 
     def remove_where(self, luid):
         index = self._project._find_where('luid', luid)
@@ -1527,16 +1496,6 @@ class MainFrame(SFContainer):
                 " (actions[{}]['luid']={}, _items[{}].data['luid']={})"
                 "".format(index, luid, i, luid)
             )
-        path = self._items[i].data.get('path')
-        if path is not None:
-            old_luid = self._id_of_path[path]
-            if old_luid != luid:
-                raise RuntimeError(
-                    "The visual row data & row button are out of sync:"
-                    " (actions[{}]['luid']={},"
-                    " _items[{}].data['luid']={})"
-                    "".format(index, luid, i, luid)
-                )
         self._project.remove(index)
         self.update_undo()
         self._remove(i)
@@ -1556,52 +1515,24 @@ class MainFrame(SFContainer):
         count = 0
         for i in range(index, len(self._items)):
             count += 1
-            # path = self.path_of_index(i)
             self._items[i].pack_forget()
             more_items.append(self._items[i])
         # self._items = self._items[:index]
         old_len = len(self._items)
-        tmp_id_of_path = {}
         for i in reversed(range(index, old_len)):
-            # Do them individually so _index_of_path and _id_of_path update.
-            path = self.path_of_index(i)
-            if path is not None:
-                luid = self._id_of_path[path]
-                tmp_id_of_path[path] = luid
             self._remove(i)
         self._append_row(action)
-        # ^ handles: self._id_of_path[path], self._index_of_path[path]
-        #   (Don't modify other entries since removed rows will be re-added
-        #   immediately below)
+        # (Don't modify other entries since removed rows will be re-added
+        # immediately below)
         # luid = action['luid']
         # echo1("* appended row {} luid {}".format(index, luid))
-        tmp_index_of_path = {}
         for i in range(len(more_items)):
             item = more_items[i]
             path = item.data.get('path')
             row = len(self._items)
-            if path is not None:
-                tmp_index_of_path[path] = row
             item.pack(fill=tk.X)
             # echo1("* dequeued luid {}".format(more_items[i].data['luid']))
             self._items.append(item)
-        for path, luid in tmp_id_of_path.items():
-            # name = os.path.split(path)[1]
-            row = tmp_index_of_path[path]
-            if path in self._id_of_path:
-                raise ValueError("Path [{}] already exists for id {}: {}"
-                                 "".format(row, self._id_of_path[path],
-                                           path))
-            if path in self._index_of_path:
-                raise ValueError("Path [{}] already exists at {}: {}"
-                                 "".format(row, self._index_of_path[path],
-                                           path))
-            self._id_of_path[path] = luid
-            self._index_of_path[path] = row
-            old_luid = self._items[row].data['luid']
-            if old_luid != luid:
-                raise ValueError("Path [{}] luid {} should be {}"
-                                 "".format(row, luid, old_luid))
 
     def swap(self, index, other_index):
         # luid = self._items[index]['luid']
@@ -1718,9 +1649,27 @@ class MainFrame(SFContainer):
         self.update_undo()
         self._append_row(transition_action)
 
-    def append_source(self, path):
+    def append_source(self, path, do_save=True):
         try:
-            version_action = self._project.add_version(path)
+            raw_name = os.path.split(path)[1]
+            name = raw_name
+            if self._project._find_where('path', path) > -1:
+                yes = messagebox.askyesno(
+                    "Duplicate source",
+                    ('If you add "{}" again, you will need to manually'
+                     ' add a different "use" statement with no overlap.'
+                     ' Do you want to continue adding the duplicate?'
+                     ''.format(name))
+                )
+                if not yes:
+                    return True
+            new_number = 1
+            while self._project._find_where('name', name) > -1:
+                new_number += 1
+                name = raw_name + " ({})".format(new_number)
+
+            version_action = self._project.add_version(path, do_save=do_save,
+                                                       name=name)
             self.update_undo()
             self._append_row(version_action)
         except (ValueError, TypeError) as ex:
@@ -1742,9 +1691,6 @@ class MainFrame(SFContainer):
             )
             widget.pack(side=tk.LEFT)
         titleRowFrame.pack(fill=tk.X)
-
-    def append_version(self, path):
-        return self.append_source(path)
 
     def load_project(self, path):
         if os.path.getsize(path) == 0:
@@ -1809,21 +1755,8 @@ class MainFrame(SFContainer):
                 name = os.path.split(path)[1]
             echos[level]("  - path~={}".format(name))
             if path is not None:
-                index = self._index_of_path[path]
+                index = self._project._find_where('path', path)
                 echos[level]("  - index {}".format(index))
-
-        for path, index in self._index_of_path.items():
-            name = path
-            if path is not None:
-                name = os.path.split(path)[1]
-            echos[level]("* index [{}] = {}"
-                  "".format(name, index))
-        for path, luid in self._id_of_path.items():
-            name = path
-            if path is not None:
-                name = os.path.split(path)[1]
-            echos[level]("* luid for [{}] = {}"
-                  "".format(name, luid))
 
         echos[level](
             "BACKEND data len: {}"
@@ -1835,8 +1768,9 @@ class MainFrame(SFContainer):
             name = path
             luid = self._project._actions[index].get('luid')
             _BACKEND_DUMP.append(luid)
-            known_luid = self._id_of_path.get(path)
-            i = self._index_of_path.get(path)
+            known_luid = None
+            # TODO: ^ generate or deprecate known_luid
+            i = self._project._find_where('path', path)
             if path is not None:
                 name = os.path.split(path)[1]
             echos[level]("* item for [{}] id {} (known as {}) at {} = {}"
@@ -1867,11 +1801,12 @@ class MainFrame(SFContainer):
             subPath = os.path.join(path, sub)
             if not os.path.isdir(subPath):
                 continue
-            result = self.append_version(subPath)
+            result = self.append_source(subPath, do_save=False)
             if not result:
                 failPaths.append(subPath)
                 break
             count += 1
+        self._project.save()
         echo1("Added {}".format(count))
         for failPath in failPaths:
             echo1('* failed to add {}'.format(failPath))

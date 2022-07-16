@@ -335,7 +335,8 @@ def new_version(path, mode='delete_then_add', luid=None, name=None):
     '''
     Keyword arguments:
     luid -- If None, generate a LUID. See _new_process for more info.
-    name -- Tag the subversion. If None, name is set to the leaf of the
+    name -- Set the visible name (Used as commit summary if this source is
+        committed). If None, the name will be generated as the leaf of the
         path.
     '''
     action = _new_process(luid=luid)
@@ -523,13 +524,15 @@ class ANCProject:
             self._undo_step_i -= 1
         return results, None
 
-    def append_action(self, action):
+    def append_action(self, action, do_save=True):
         self._actions.append(action)
         self._add_undo_step([
             ['remove', len(self._actions)-1],
         ])
+        if do_save:
+            self.save()
 
-    def add_transition(self, verb):
+    def add_transition(self, verb, do_save=True):
         '''
         Sequential arguments:
         verb -- Set operation string from the OPS table to decide what
@@ -547,17 +550,23 @@ class ANCProject:
                 "The verb is unknown: {}"
                 "".format(verb)
             )
-        self.append_action(action)
+        self.append_action(action, do_save=do_save)
         return action
 
-    def add_version(self, path, mode='delete_then_add'):
+    def add_version(self, path, mode='delete_then_add', do_save=True,
+                    name=None):
         '''
         Sequential arguments:
         path -- This is a path to a version.
+
+        Keyword arguments:
+        mode -- Specify how to add the data to the repo.
+        do_save -- Save immediately.
+        name -- Set the name (See new_version documentation).
         '''
-        action = new_version(path, mode=mode)
+        action = new_version(path, mode=mode, name=name)
         # ^ new_version raises ValueError if the mode is invalid.
-        self.append_action(action)
+        self.append_action(action, do_save=do_save)
         return action
 
     def insert_statement_where(self, luid, statement, direction=-1):

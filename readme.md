@@ -17,6 +17,9 @@ snapshots of subprojects).
   - Choose "pre-process" to make a copy of the next version with the change.
 - The "Mark" date features only use the directories specified using "use"
   statements if any "use" statement exists on the source(s) being marked.
+- Any post-processing statement before the first source indicates that the
+  statement should be global (applied to every version).
+
 
 ## Planned Features
 - Split into "subprojects" and commit to separate repositories where
