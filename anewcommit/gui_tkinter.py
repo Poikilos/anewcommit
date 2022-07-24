@@ -83,8 +83,8 @@ from anewcommit import (
     echo0,
     echo1,
     echo2,
-    get_verbose,
-    set_verbose,
+    get_verbosity,
+    set_verbosity,
     profile,
     substep_to_str,
     s2or3,
@@ -101,7 +101,7 @@ echos.append(echo2)
 
 from anewcommit.scrollableframe import SFContainer
 
-verbose = get_verbose()
+verbosity = get_verbosity()
 
 verb_width = 1
 for verb in anewcommit.TRANSITION_VERBS:
@@ -472,7 +472,7 @@ class MainFrame(SFContainer):
     MainFrame loads, generates, or edits an anewcommit project.
 
     Requires:
-    - global verbose (usually False)
+    - global verbosity (usually 0)
     - See imports for more.
 
     Private Attributes:
@@ -487,9 +487,9 @@ class MainFrame(SFContainer):
         all_settings = copy.deepcopy(ANCProject.default_settings)
         self._added_title_row = False
         if settings is not None:
-            # if is_truthy(settings.get('verbose')):
-            #     # self.settings['verbose'] = True
-            #     verbose = True
+            # if is_truthy(settings.get('verbosity')):
+            #     # self.settings['verbosity'] = 1
+            #     verbosity = 1
             for k, v in settings.items():
                 all_settings[k] = v
         self.settings = all_settings
@@ -1263,7 +1263,7 @@ class MainFrame(SFContainer):
             action,
             frame,
             template=this_template,
-            warning_on_blank=get_verbose(),
+            warning_on_blank=get_verbosity(),
         )
         for k, var in results['vs'].items():
             # self._key_of_name[var._name] = k
@@ -1670,7 +1670,7 @@ class MainFrame(SFContainer):
             self.update_undo()
             self._append_row(version_action)
         except (ValueError, TypeError) as ex:
-            if verbose:
+            if verbosity:
                 raise ex
             messagebox.showerror("Error", str(ex))
             return False
@@ -1828,9 +1828,9 @@ def main():
         if arg.startswith("--"):
             option_name = arg[2:]
             if arg == "--verbose":
-                set_verbose(1)
+                set_verbosity(1)
             elif arg == "--debug":
-                set_verbose(2)
+                set_verbosity(2)
             elif arg in bool_names:
                 settings[option_name] = True
             else:
@@ -1844,9 +1844,9 @@ def main():
                 usage()
                 raise ValueError("There was an extra argument: {}"
                                  "".format(arg))
-    global verbose
-    if is_truthy(settings.get('verbose')):
-        verbose = True
+    global verbosity
+    if is_truthy(settings.get('verbosity')):
+        verbosity = 1
         echo0("* enabled verbose logging to standard error")
     echo1("versions_path: {}".format(versions_path))
     style = ttk.Style(root)
@@ -1859,7 +1859,7 @@ def main():
         if prefer_theme in style.theme_names():
             style.theme_use(prefer_theme)
             break
-    if verbose:
+    if verbosity > 0:
         echo0("* available ttk themes: {}".format(style.theme_names()))
         echo0("* current theme: {}".format(style.theme_use()))
 
@@ -1882,7 +1882,7 @@ if __name__ == "__main__":
         # test_case_dir = os.path.join(profile, "tmp")
         if os.path.isdir(test_case_dir):
             sys.argv.append(test_case_dir)
-            set_verbose(True)
+            set_verbosity(True)
     main()
 
 

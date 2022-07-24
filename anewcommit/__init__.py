@@ -11,16 +11,28 @@ import pathlib
 from io import StringIO
 import csv
 
+my_dir = os.path.dirname(os.path.abspath(__file__))
+repo_dir = os.path.dirname(my_dir)
+repos_dir = os.path.dirname(repo_dir)
+try_repo_dir = os.path.join(repos_dir, "pycodetool")
+if os.path.isdir(try_repo_dir):
+    sys.path.insert(0, try_repo_dir)
+
+from pycodetool.parsing import (
+    find_unquoted_not_commented,
+    explode_unquoted,
+)
+
 python_mr = sys.version_info[0]
 
-verbose = 0
+verbosity = 0
 for argI in range(1, len(sys.argv)):
     arg = sys.argv[argI]
     if arg.startswith("--"):
         if arg == "--verbose":
-            verbose = 1
+            verbosity = 1
         elif arg == "--debug":
-            verbose = 2
+            verbosity = 2
 
 
 def set_verbosity(level):
@@ -36,13 +48,13 @@ def echo0(*args, **kwargs):
 
 
 def echo1(*args, **kwargs):
-    if not verbose:
+    if verbosity < 1:
         return
     print(*args, file=sys.stderr, **kwargs)
 
 
 def echo2(*args, **kwargs):
-    if verbose < 2:
+    if verbosity < 2:
         return
     print(*args, file=sys.stderr, **kwargs)
 
@@ -56,27 +68,27 @@ def s2or3(s):
     return s
 
 
-def get_verbose():
-    return verbose
+def get_verbosity():
+    return verbosity
 
 
-def set_verbose(enable_verbose):
-    global verbose
-    max_verbose = 3
-    verbosities = list(range(max_verbose+1))
-    if enable_verbose is True:
-        enable_verbose = 1
-    elif enable_verbose is False:
-        enable_verbose = 0
-    if enable_verbose not in verbosities:
-        vMsg = enable_verbose
+def set_verbosity(verbosity_level):
+    global verbosity
+    max_verbosity = 3
+    verbosities = list(range(max_verbosity+1))
+    if verbosity_level is True:
+        verbosity_level = 1
+    elif verbosity_level is False:
+        verbosity_level = 0
+    if verbosity_level not in verbosities:
+        vMsg = verbosity_level
         if isinstance(vMsg, str):
             vMsg = '"{}"'.format(vMsg)
         raise ValueError(
-            "enable_verbose must be 0 to {} not {}."
-            "".format(max_verbose, vMsg)
+            "verbosity_level must be 0 to {} not {}."
+            "".format(max_verbosity, vMsg)
         )
-    verbose = enable_verbose
+    verbosity = verbosity_level
 
 
 profile = os.environ.get('HOME')
@@ -288,6 +300,27 @@ def gen_luid():
     new_luid = str(last_luid_i)
     used_luids.add(new_luid)
     return new_luid
+
+
+def find_param(haystack, needle, min_param=0, max_param=-1, fs=",",
+               quotes="\"'", inline_comment_marks=["//", "#"]):
+    '''
+    Find the param in a function call.
+
+    This function requires find_unquoted_not_commented and
+    explode_unquoted from the parsing submodule of Poikilos' pycodetool.
+
+    Keyword arguments:
+    fs -- field separator
+    quotes -- what quotes are allowed
+    '''
+    paren1_i = find_unquoted_not_commented(haystack, "(")
+    if paren1_i < 0:
+        return paren1_i
+    start = paren1_i + 1
+    paren2_i = find_unquoted_not_commented(haystack, ")", start=start)
+
+    return -1
 
 
 def _new_process(luid=None):
