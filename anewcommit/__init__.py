@@ -35,14 +35,6 @@ for argI in range(1, len(sys.argv)):
             verbosity = 2
 
 
-def set_verbosity(level):
-    global verbosity
-    verbosity_levels = [True, False, 0, 1, 2]
-    if level not in verbosity_levels:
-        raise ValueError("verbosity must be 0-2 but was {}".format(verbosity))
-    verbosity = level
-
-
 def echo0(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
@@ -67,7 +59,6 @@ def s2or3(s):
             return str(s)
     return s
 
-
 def get_verbosity():
     return verbosity
 
@@ -89,7 +80,6 @@ def set_verbosity(verbosity_level):
             "".format(max_verbosity, vMsg)
         )
     verbosity = verbosity_level
-
 
 profile = os.environ.get('HOME')
 if platform.system() == "Windows":
@@ -197,7 +187,7 @@ def newest_file_dt_in(parent, too_new_dt=None, level=0,
 def open_file(path):
     # based on <https://stackoverflow.com/a/16204023/4541104>:
     if platform.system() == "Windows":
-        os.startfile(path)
+        os.startfile(path)  # only exists on Windows
     elif platform.system() == "Darwin":
         subprocess.Popen(["open", path])
     else:
@@ -622,13 +612,14 @@ class ANCProject:
             raise ValueError("The verb must be one of {} not {}"
                              "".format(TRANSITION_VERBS, action['verb']))
 
-        return self.insert_where(self, 'luid', luid, action,
+        return self.insert_where('luid', luid, action,
                                  direction=direction)
 
     def append_statement_where(self, luid, statement, force=False):
         '''
         Keyword arguments:
-        force -- Add it even it is already in the list.
+        force -- Add it even it is already in the list
+            (not yet implemented).
 
         Returns:
         True if added, otherwise false.
@@ -752,7 +743,7 @@ class ANCProject:
         return ranges
 
     def get_action(self, luid):
-        i = self._find_action(luid)
+        i = self._find_where('luid', luid)
         if i > -1:
             return self._actions[i]
         return None
@@ -791,8 +782,10 @@ class ANCProject:
                 return True, msg
             except ValueError as ex:  # Python 2 JSON decode error
                 return False, str(ex)
-            except json.JSONDecodeError as ex:  # Python 3
-                return False, str(ex)
+            # except json.JSONDecodeError as ex:  # Python 3
+            #     # json.JSONDecodeError never happens since
+            #     # ValueError is its ancestor class.
+            #     return False, str(ex)
         return False, "unknown error"
 
     def save(self):
@@ -927,7 +920,7 @@ class ANCProject:
         return self.insert(newI, action)
 
     def insert_where_luid(self, luid, action, direction=-1):
-        return self.insert_where(self, 'luid', luid, action,
+        return self.insert_where('luid', luid, action,
                                  direction=direction)
 
     def remove_where(self, name, value):
@@ -968,7 +961,7 @@ class ANCProject:
     def to_dict(self):
         return {
             'project_dir': self.project_dir,
-            'actions': self.actions,
+            'actions': self._actions,
         }
 
 
