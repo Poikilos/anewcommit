@@ -107,6 +107,40 @@ def is_truthy(v):
     return False
 
 
+def split_subs(path):
+    '''
+    Convert "a/b/c" to tuple ("a", "b", "c")
+    or "/a/b/c" to tuple ("/a", "b", "c").
+    '''
+    parts = path.split(os.path.sep)
+    if len(parts[0]) == 0:
+        parts = ["/" + parts[1]] + parts[2:]
+    return parts
+
+
+def split_root(path):
+    '''
+    Convert "a/b/c" to tuple ("a", "b/c") or "/a/b/c" to tuple ("/a", "b/c").
+    '''
+    raw_path = path
+    prev_path = None
+    while True:
+        path = os.path.dirname(path)
+        if (len(path) == 0) or (path == "/"):
+            path = prev_path
+            break
+        elif path == prev_path:
+            break
+        prev_path = path
+    sub = ""
+    if path == None:
+        path = raw_path
+    else:
+        sub = raw_path[len(path)+1:]
+    return [path, sub]
+
+
+
 def extract(src_file, new_parent_dir, auto_sub=True,
             auto_sub_name=None):
     """

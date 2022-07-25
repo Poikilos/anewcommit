@@ -92,6 +92,8 @@ from anewcommit import (
     parse_statement,
     statement_to_caption,
     open_file,
+    split_root,
+    split_subs,
 )
 
 echos = []
@@ -931,26 +933,65 @@ class MainFrame(SFContainer):
             self.on_right_click_sub(luid, statement)
         self.on_click_row(luid)
 
-    def on_left_click_sub(self, luid, statement):
+    def on_left_click_sub(self, luid, statement, skip_partial_count=0):
+        '''
+        Compare the sources from two "use" statements where
+        their roots of their destinations match.
+
+        If a destination includes a subfolder (len(split_subs(dst))>1),
+        the matching code assumes that the subfolder is real on copies
+        that do not include a subfolder. In other situations, the
+        structure of the source isn't checked for either of the
+        "use" statements.
+
+        Keyword arguments:
+        skip_partial_count -- Skip this many partial matches (such as
+            matching primary/about to primary or vise versa). Normally this is
+            only set if the user presses "No" to use a partial match.
+        '''
         if not statement.startswith("use "):
             messagebox.showerror(
                 "Nothing to do",
                 'There is no "use" statement so there is nothing to open.'
             )
             return
-        to_command = parse_statement(statement)
-        if 'destination' not in to_command:
+        I_FROM = 0
+        I_TO = 1
+        cmp_cmds = [None, None]
+        cmp_cmds[I_TO] = parse_statement(statement)
+        if 'destination' not in cmp_cmds[I_TO]:
             messagebox.showerror(
                 "Nothing to do",
                 'There is no destination in the statement.'
             )
             return
+
         to_i = self._find('luid', luid)
+
         to_action = self._project._actions[to_i]
+        cmp_paths = [None, None]
+        cmp_paths[I_TO] = to_action['path']
+        to_source = cmp_cmds[I_TO].get('source')
+        if to_source is not None:
+            cmp_paths[I_TO] = os.path.join(cmp_paths[I_TO], to_source)
+        cmp_src_lists = [None, None]
+        cmp_src_lists[I_TO] = []
+        if to_source is not None:
+            cmp_src_lists[I_TO] = split_subs(to_source)
+        cmp_dst_lists = [None, None]
+        to_dst = cmp_cmds[I_TO]['destination']
+        cmp_dst_lists[I_TO] = split_subs(to_dst)
+        cmp_roots = [None, None]
+        cmp_roots[I_TO] = cmp_dst_lists[I_TO][0]
+        cmp_src_higher_lists = [None, None]
+        cmp_src_higher_lists[I_TO] = split_subs(cmp_paths[I_TO])
+
         from_action = None
+        cmp_paths[I_FROM] = None
         # from_i = None
-        from_source = None
-        to_source = to_command.get('source')
+        partial_count = 0
+        SMALL_IDX = -1
+        BIG_IDX = -1
         for try_i in reversed(range(0, to_i)):
             try_action = self._project._actions[try_i]
             try_statements = try_action.get('statements')
@@ -963,12 +1004,111 @@ class MainFrame(SFContainer):
                 except ValueError as ex:
                     echo0("'{}' failed since: {}".format(try_statement, ex))
                     continue
-                destination = try_command.get('destination')
-                if destination is None:
+                from_dst = try_command.get('destination')
+                if from_dst is None:
                     continue
-                if destination == to_command['destination']:
+
+                cmp_dst_lists[I_FROM] = split_subs(from_dst)
+                # from_dst_sub
+                # to_dst_sub
+                cmp_roots[I_FROM] = cmp_dst_lists[I_FROM][0]
+                min_len = len(cmp_dst_lists[I_FROM])
+                to_dst_subs = []
+                from_dst_subs = []
+                if len(cmp_dst_lists[I_TO]) < min_len:
+                    SMALL_IDX = I_TO
+                    BIG_IDX = I_FROM
+                    min_len = len(cmp_dst_lists[I_TO])
+                    to_dst_subs = []
+                    from_dst_subs = cmp_dst_lists[I_FROM][min_len:]
+                elif len(cmp_dst_lists[I_TO]) > min_len:
+                    SMALL_IDX = I_FROM
+                    BIG_IDX = I_TO
+                    to_dst_subs = cmp_dst_lists[I_TO][min_len:]
+                    from_dst_subs = []
+                try_from_src = try_command.get('source')
+                cmp_src_lists[I_FROM] = []
+                if try_from_src is not None:
+                    cmp_src_lists[I_FROM] = split_subs(try_from_src)
+                if cmp_roots[I_TO] == cmp_roots[I_FROM]:
+                    if to_dst_subs != from_dst_subs:
+                        # both are not None: to_dst_subs, from_dst_subs
+                        partial_count += 1
+                        if skip_partial_count >= partial_count:
+                            # The user said to look for an older copy.
+                            continue
+
+                        partial_msg = 'Do you want to use the partial copy'
+                        if len(from_dst_subs) > len(to_dst_subs):
+                            partial_msg = ('Do you want to compare the partial'
+                                           ' copy to the full copy')
+                        if skip_partial_count > 0:
+                            partial_msg = ('No matching subdirectory'
+                                           ' was available. ' + partial_msg)
+                        yes = messagebox.askyesnocancel(
+                            'Partial Copy Detected',
+                            (partial_msg
+                             + ' "{}" (press "No" to skip and look for copy with same scope)?'
+                             ''.format(try_action['name']))
+                        )
+                        if yes is True:
+                            pass
+                            # fall through and use the match
+                        elif yes is False:
+                            return self.on_left_click_sub(
+                                luid,
+                                statement,
+                                skip_partial_count=skip_partial_count+1,
+                            )
+                        elif yes is None:
+                            # Cancel yields None
+                            return
+                        else:
+                            raise RuntimeError("{} is an unknown response"
+                                               "".format(yes))
+
+                        # continue and consider it a match.
+                        cmp_paths[I_FROM] = try_action['path']
+                        if try_from_src is not None:
+                            cmp_paths[I_FROM] = os.path.join(cmp_paths[I_FROM], try_from_src)
+                        cmp_src_higher_lists[I_FROM] = split_subs(cmp_paths[I_FROM])
+                        # if len(to_dst_subs) > 0:
+                        if BIG_IDX > -1:
+                            big_sub_path_parts = cmp_dst_lists[BIG_IDX][1:]
+                            # Look for the deeper directory from big in small:
+                            try_small_src_sub = big_sub_path_parts[0]
+                            if len(big_sub_path_parts) > 1:
+                                try_small_src_sub = os.path.join(
+                                    # [cmp_paths[SMALL_IDX]]+cmp_src_lists[BIG_IDX][1:],
+                                    *big_sub_path_parts
+                                )
+                            try_small_src_sub_path = os.path.join(
+                                cmp_paths[SMALL_IDX],
+                                try_small_src_sub
+                            )
+                            # ^ See "Reconstruct FROM on TO"
+                            #   in projects/development.md
+                            if not os.path.isdir(try_small_src_sub_path):
+                                echo0('The deeper path doesn\'t exist'
+                                      ' in the previous version:')
+                                echo0('- try_small_src_sub_path="{}"'.format(try_small_src_sub_path))
+                                echo0('- try_small_src_sub="{}'.format(try_small_src_sub))
+                                echo0('- cmp_src_lists[SMALL_IDX]="{}'.format(cmp_src_lists[SMALL_IDX]))
+                                echo0('- cmp_src_lists[BIG_IDX]="{}'.format(cmp_src_lists[BIG_IDX]))
+                                echo0('- cmp_dst_lists[I_FROM]="{}'.format(cmp_dst_lists[SMALL_IDX]))
+                                echo0('- cmp_dst_lists[BIG_IDX]="{}'.format(cmp_dst_lists[BIG_IDX]))
+                                echo0('- cmp_paths[SMALL_IDX]="{}'.format(cmp_paths[SMALL_IDX]))
+                                continue
+                            cmp_paths[SMALL_IDX] = try_small_src_sub_path
+                            # to_src_subs = cmp_src_higher_lists[BIG_IDX][]
+
+                        # if cmp_roots[I_FROM] != from_dst:
+
                     from_action = try_action
-                    from_source = try_command.get('source')
+                    from_src = try_from_src
+                    # ^ This is ok since cmp_paths will be used for
+                    #   compare_paths and that version is truncated if the
+                    #   match is partial.
                     break
             if from_action is not None:
                 break
@@ -976,17 +1116,11 @@ class MainFrame(SFContainer):
             messagebox.showinfo(
                 "Info",
                 ("{} is the 1st version of {} so there is nothing to compare."
-                 "".format(to_action['name'], to_command['destination'])),
+                 "".format(to_action['name'], cmp_cmds[I_TO]['destination'])),
             )
             return
-        to_path = to_action['path']
-        if to_source is not None:
-            to_path = os.path.join(to_path, to_source)
-        from_path = from_action['path']
-        if from_source is not None:
-            from_path = os.path.join(from_path, from_source)
 
-        self.compare_paths(from_path, to_path)
+        self.compare_paths(cmp_paths[I_FROM], cmp_paths[I_TO])
 
     def select_luid(self, luid):
         min_index = -1

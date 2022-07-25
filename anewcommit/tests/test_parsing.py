@@ -15,6 +15,8 @@ from anewcommit import (
     echo0,
     split_statement,
     parse_statement,
+    split_root,
+    split_subs,
 )
 
 class TestParsing(unittest.TestCase):
@@ -57,3 +59,17 @@ class TestParsing(unittest.TestCase):
             )
         else:
             echo0("parse_statement succeeded in blocking foo.")
+
+    def test_split_root(self):
+        self.assertEqual(split_root("abc/def/ghi"), ["abc", "def/ghi"])
+        self.assertEqual(split_root("/abc/def/ghi"), ["/abc", "def/ghi"])
+        self.assertEqual(split_root("/abc"), ["/abc", ""])
+        self.assertEqual(split_root("abc"), ["abc", ""])
+
+    def test_split_subs(self):
+        self.assertEqual(split_subs("a/b/c"), ["a", "b", "c"])
+        self.assertEqual(split_subs("/a/b/c"), ["/a", "b", "c"])
+        self.assertEqual(split_subs("a/b"), ["a", "b"])
+        self.assertEqual(split_subs("/a/b"), ["/a", "b"])
+        self.assertEqual(split_subs("a"), ["a"])
+        self.assertEqual(split_subs("/a"), ["/a"])
