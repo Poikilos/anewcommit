@@ -972,6 +972,7 @@ class MainFrame(SFContainer):
         cmp_paths = [None, None]
         cmp_paths[I_TO] = to_action['path']
         to_source = cmp_cmds[I_TO].get('source')
+        # ^ RELATIVE, so added to 'path' later
         if to_source is not None:
             cmp_paths[I_TO] = os.path.join(cmp_paths[I_TO], to_source)
         cmp_src_lists = [None, None]
@@ -1026,11 +1027,16 @@ class MainFrame(SFContainer):
                     BIG_IDX = I_TO
                     to_dst_subs = cmp_dst_lists[I_TO][min_len:]
                     from_dst_subs = []
-                try_from_src = try_command.get('source')
+                from_src = try_command.get('source')
+                # ^ RELATIVE, so added to 'path' later
                 cmp_src_lists[I_FROM] = []
-                if try_from_src is not None:
-                    cmp_src_lists[I_FROM] = split_subs(try_from_src)
+                if from_src is not None:
+                    cmp_src_lists[I_FROM] = split_subs(from_src)
+
                 if cmp_roots[I_TO] == cmp_roots[I_FROM]:
+                    cmp_paths[I_FROM] = try_action['path']
+                    if from_src is not None:
+                        cmp_paths[I_FROM] = os.path.join(cmp_paths[I_FROM], from_src)
                     if to_dst_subs != from_dst_subs:
                         # both are not None: to_dst_subs, from_dst_subs
                         partial_count += 1
@@ -1068,9 +1074,6 @@ class MainFrame(SFContainer):
                                                "".format(yes))
 
                         # continue and consider it a match.
-                        cmp_paths[I_FROM] = try_action['path']
-                        if try_from_src is not None:
-                            cmp_paths[I_FROM] = os.path.join(cmp_paths[I_FROM], try_from_src)
                         cmp_src_higher_lists[I_FROM] = split_subs(cmp_paths[I_FROM])
                         # if len(to_dst_subs) > 0:
                         if BIG_IDX > -1:
@@ -1091,13 +1094,18 @@ class MainFrame(SFContainer):
                             if not os.path.isdir(try_small_src_sub_path):
                                 echo0('The deeper path doesn\'t exist'
                                       ' in the previous version:')
+                            if ((not os.path.isdir(try_small_src_sub_path))
+                                    or (get_verbosity()>1)):
+                                echo0('- big_sub_path_parts="{}'.format(big_sub_path_parts))
                                 echo0('- try_small_src_sub_path="{}"'.format(try_small_src_sub_path))
                                 echo0('- try_small_src_sub="{}'.format(try_small_src_sub))
                                 echo0('- cmp_src_lists[SMALL_IDX]="{}'.format(cmp_src_lists[SMALL_IDX]))
                                 echo0('- cmp_src_lists[BIG_IDX]="{}'.format(cmp_src_lists[BIG_IDX]))
-                                echo0('- cmp_dst_lists[I_FROM]="{}'.format(cmp_dst_lists[SMALL_IDX]))
+                                echo0('- cmp_dst_lists[SMALL_IDX]="{}'.format(cmp_dst_lists[SMALL_IDX]))
                                 echo0('- cmp_dst_lists[BIG_IDX]="{}'.format(cmp_dst_lists[BIG_IDX]))
                                 echo0('- cmp_paths[SMALL_IDX]="{}'.format(cmp_paths[SMALL_IDX]))
+                            if not os.path.isdir(try_small_src_sub_path):
+                                # It is not a match, so keep looking.
                                 continue
                             cmp_paths[SMALL_IDX] = try_small_src_sub_path
                             # to_src_subs = cmp_src_higher_lists[BIG_IDX][]
@@ -1105,10 +1113,9 @@ class MainFrame(SFContainer):
                         # if cmp_roots[I_FROM] != from_dst:
 
                     from_action = try_action
-                    from_src = try_from_src
-                    # ^ This is ok since cmp_paths will be used for
-                    #   compare_paths and that version is truncated if the
-                    #   match is partial.
+                    # ^ Setting this ends the loop, but instead of using it,
+                    #   cmp_paths will be used for compare_paths and cmp_paths
+                    #   was truncated if the match was partial.
                     break
             if from_action is not None:
                 break
@@ -1119,6 +1126,16 @@ class MainFrame(SFContainer):
                  "".format(to_action['name'], cmp_cmds[I_TO]['destination'])),
             )
             return
+        if cmp_paths[I_FROM] is None:
+            raise RuntimeError(
+                "cmp_paths[I_FROM] is None, but the missing path case"
+                " should have been handled further up."
+            )
+        if cmp_paths[I_TO] is None:
+            raise RuntimeError(
+                "cmp_paths[I_TO] is None, but the missing path case"
+                " should have been handled further up."
+            )
 
         self.compare_paths(cmp_paths[I_FROM], cmp_paths[I_TO])
 
