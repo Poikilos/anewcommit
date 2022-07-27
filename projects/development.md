@@ -1,6 +1,11 @@
 # Development
 ## Reconstruct FROM on TO
-(See on_left_click_sub in gui_tkinter.py)
+Reconstruct one action's path in the context of another action.
+
+This logic is for:
+- `on_left_click_sub` in gui_tkinter.py (examine sources or
+  destinations)
+- ANCProject's `generate_cache` in __init__.py (examine destinations)
 
 ### Example 1
 Input:

@@ -23,6 +23,10 @@ from pycodetool.parsing import (
     explode_unquoted,
 )
 
+from pycodetool.ggrep import (
+    gitignore_to_rsync_pair,
+)
+
 python_mr = sys.version_info[0]
 
 verbosity = 0
@@ -441,6 +445,48 @@ def new_post_process(luid=None):
     action['commit'] = True
     return action
 
+def join_action_path(action, key, path=None):
+    '''
+    Sequential arguments:
+    action -- This must be a version action such as created using the
+        new_version function.
+
+    Keyword arguments:
+    path -- Use this as the base path. If None action['path'] will be used.
+    '''
+    good_keys = ['source', 'destination']
+    if action['verb'] not in VERSION_VERBS:
+        raise ValueError(
+            'verb is \"{}\" but should be one of the following: {}'
+            ''.format(action['verb'], VERSION_VERBS)
+        )
+    if key not in good_keys:
+        return ValueError(
+            'key is \"{}\" but should be one of the following: {}'
+            ''.format(key, good_keys)
+        )
+    if path is None:
+        path = action['path']
+    dst = path
+    dst_sub = action.get(key)
+    if dst_sub is not None:
+        if len(dst_sub.strip()) == 0:
+            dst_sub = None
+    if dst_sub is None:
+        echo1('There is no sub path to join (luid={}).'
+              ''.format(action['luid']))
+        # raise ValueError('action["{}"] is blank.'.format(key))
+    else:
+        dst = os.path.join(dst, dst_sub)
+    if dst.endswith(os.path.sep):
+        dst = dst[:-1]
+    if ".." in dst:
+        raise ValueError(
+            'paths must not contain ".." (luid={}, path={}, {}="{}")'
+            ''.format(action['luid'], path, key, dst_sub)
+        )
+    return dst
+
 
 def substep_to_str(ss):
     name = None
@@ -832,6 +878,12 @@ class ANCProject:
         echo1('* wrote "{}"'.format(self.path))
         return True
 
+    def get_project_dir(self):
+        if self.project_dir is None:
+            raise RuntimeError("The project dir or path must be set.")
+        return self.project_dir
+
+
     def remove(self, index, add_undo_step=True):
         action = self._actions.pop(index)
         echo1("* removed [{}]: {}".format(index, action))
@@ -997,6 +1049,140 @@ class ANCProject:
             'project_dir': self.project_dir,
             'actions': self._actions,
         }
+
+    def get_gitignore_path(self):
+        return os.path.join(self.get_project_dir(), ".gitignore")
+
+    def get_rsync_pair(self, ignore_from, rsync_from):
+        '''
+        Get a pair of include and exclude files (one or both can be None if
+        not applicable) from the projects .gitignore file.
+        The --include-from must be used before --exclude-from since rsync uses
+        the first matching pattern.
+
+        For further documentation see gitignore_to_rsync_pair in
+        pycodetool.ggrep.
+
+        Keyword arguments:
+        ignore_from -- Behave as though the .gitignore file is in this folder.
+        '''
+        gitignore_path = self.get_gitignore_path()
+        if gitignore_path is None:
+            return None, None
+        if not os.path.isfile(gitignore_path):
+            echo0('* There is no "{}"'.format(gitignore_path))
+            return None, None
+        # ignore_from = os.path.dirname(gitignore_path)
+        return gitignore_to_rsync_pair(
+            gitignore_path,
+            rsync_from,
+            self.get_cache_dir(),
+            ignore_from=ignore_from,
+        )
+
+    def get_cache_dir(self):
+        project_dir = self.get_project_dir()
+        cache_dir = os.path.join(project_dir, "_anewcommit_cache")
+        if not os.path.isdir(cache_dir):
+            os.makedirs(cache_dir)
+        return cache_dir
+
+    def get_cached_dir(self, name):
+        path = os.path.join(self.get_cache_dir(), name)
+        if not os.path.isdir(path):
+            os.makedirs(path)
+        return path
+
+
+    def generate_cache(self, luid, do_uncommitted=False):
+        unfiltered_commits_dir = self.get_cached_dir("commits")
+        tmp_dir = os.path.join(unfiltered_commits_dir, luid)
+        echo0("+ generating {}".format(tmp_dir))
+        last_i = self._find_where('luid', luid)
+        resync = True  # always resync the first time.
+        progress_max = float(last_i+1)
+        for index in range(0, last_i+1):
+            action = self._actions[index]
+            progress_f = float(index) / progress_max
+            if not do_uncommitted:
+                if action.get('commit') is not True:
+                    continue
+            if action['verb'] in VERSION_VERBS:
+                mode = action['mode']  # The mode only applies to 'get_version'
+                cmd_start = [
+                    'rsync',
+                    '-rt',
+                    # '--info=progress2',
+                ]
+                if mode == 'delete_then_add':
+                    resync = True
+                if resync:
+                    cmd_start.append("--delete")
+                    resync = False
+                elif mode == 'overlay':
+                    pass
+                statements = action.get('statements')
+                if statements is None:
+                    echo0('  - {} has no statements,'
+                          ' so it will not be used.')
+                    continue
+                progress_subpart_increment = 1.0 / float(len(statements))
+                progress_subpart = -progress_subpart_increment
+                for statement in statements:
+                    progress_subpart += progress_subpart_increment
+                    progress_numerator = float(index) + progress_subpart
+                    progress_f = progress_numerator / progress_max
+                    print("{}%".format(round(progress_f*100.0, 1)))
+                    cmd_parts = cmd_start.copy()
+                    src = join_action_path(action, 'source')
+                    dst = join_action_path(action, 'destination', path=tmp_dir)
+                    ignore_from = src
+                    source_parts = None
+                    if action.get('source') is not None:
+                        source_parts = split_subs()
+                        while len(source_parts) > 1:
+                            ignore_from = os.dirname(source_parts)
+                            source_parts = source_parts[:-1]
+                        source_parts = None
+                    echo0('* Any absolute paths in gitignore will assume'
+                          ' "{}" is the directory containing ".gitignore".'
+                          ''.format(ignore_from))
+                    include_tmp, exclude_tmp = self.get_rsync_pair(
+                        ignore_from,
+                        src,
+                    )
+                    # The FIRST pattern is matched when using rsync, so
+                    #   include must come first:
+                    if include_tmp is not None:
+                        cmd_start += ['--include-from', include_tmp]
+                    if exclude_tmp is not None:
+                        cmd_start += ['--exclude-from', exclude_tmp]
+
+                    cmd_parts.append(src+"/")
+                    cmd_parts.append(dst)
+                    sys.stderr.write('* getting "{}"...'.format(src))
+                    sys.stderr.flush()
+                    # See <https://stackoverflow.com/a/61139019/4541104>:
+                    with subprocess.Popen(
+                        cmd_parts, stdout=subprocess.PIPE, text=True,
+                    ) as process:
+                        # bufsize=1,  # allow backspace processing
+                        pass
+                        # for line in iter(process.stdout.readline, b''):
+                        #     print(line.strip())
+                    if exclude_tmp is not None:
+                        os.remove(exclude_tmp)
+                    if include_tmp is not None:
+                        os.remove(include_tmp)
+                    echo0("OK\n")
+            else:
+                if action.get('mode') is not None:
+                    raise ValueError(
+                        'Mode is {} but only the following verbs should have'
+                        ' a mode: {}'.format(action.get('mode'), VERSION_VERBS)
+                    )
+                # TODO: do non-version verbs
+        return tmp_dir
 
 
 def main():

@@ -955,6 +955,13 @@ class MainFrame(SFContainer):
                 'There is no "use" statement so there is nothing to open.'
             )
             return
+        yes = messagebox.askyesno(
+            "anewcommit",
+            "Do you want to merge actions before comparing?"
+        )
+        compare_mode = "source"
+        if yes is True:
+            compare_mode = "destination"
         I_FROM = 0
         I_TO = 1
         cmp_cmds = [None, None]
@@ -1137,7 +1144,18 @@ class MainFrame(SFContainer):
                 " should have been handled further up."
             )
 
-        self.compare_paths(cmp_paths[I_FROM], cmp_paths[I_TO])
+        if compare_mode == "destination":
+            from_dst = self._project.generate_cache(from_action['luid'])
+            to_dst = self._project.generate_cache(luid)
+            self.compare_paths(from_dst, to_dst)
+        elif compare_mode == "source":
+            self.compare_paths(cmp_paths[I_FROM], cmp_paths[I_TO])
+        else:
+            raise ValueError(
+                '"{}" is not a valid compare_mode'
+                '(must be "source" or "destination")'
+                ''.format(compare_mode)
+            )
 
     def select_luid(self, luid):
         min_index = -1
