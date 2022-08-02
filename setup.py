@@ -17,10 +17,6 @@ import os
 # versionedModule['urllib'] = 'urllib'
 # if python_mr == 2:
 #     versionedModule['urllib'] = 'urllib2'
-# long_description = ""
-with open("readme.md", "r") as fh:
-    long_description = fh.read()
-
 install_requires = []
 
 if os.path.isfile("requirements.txt"):
@@ -31,8 +27,23 @@ if os.path.isfile("requirements.txt"):
                 continue
             install_requires.append(line)
 
-description = '''Compare, reorder, and commit a series of source
-snapshots (where each may also contain snapshots of subprojects).'''
+description = (
+    "Compare, reorder, and commit a series of source"
+    " snapshots (where each may also contain snapshots of subprojects)."
+)
+long_description = description
+if os.path.isfile("readme.md"):
+    long_description = ""
+    with open("readme.md", "r") as fh:
+        for rawL in fh:
+            if rawL.startswith("## "):
+                # Stop at the first subheading if using Markdown.
+                long_description = long_description.rstrip()
+                # ^ Remove the trailing newline.
+                break
+            long_description += rawL
+            # Use rawL to keep the newline (read as \n in Python, so GUI-safe)
+
 
 setuptools.setup(
     name='anewcommit',

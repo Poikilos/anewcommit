@@ -4,9 +4,11 @@ https://github.com/poikilos/anewcommit
 Commit a series of source snapshots (where each may also contain
 snapshots of subprojects).
 
+
 ## Features
 - Add versions as separate commits.
 - Add transitional commits for cleaner diffs.
+
 
 ## Usage
 - Click "+" to insert a process to make a copy of a version with the specified
@@ -124,6 +126,7 @@ subproject. The "archive" option must be present. For example:
   - [ ] `upstream_git_subfolder`
   - [ ] `downstream_git_url`
   - [ ] `downstream_branch`
+
 
 ## Developer Notes
 ### Date formats
