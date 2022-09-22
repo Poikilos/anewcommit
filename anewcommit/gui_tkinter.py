@@ -1470,13 +1470,18 @@ class MainFrame(SFContainer):
                 #   Only Python 3 can put explicit keywords after `*args`).
                 def on_this_var_changed(tkVarID, param, event, luid=luid, k=k):
                     '''
-                    Params force early binding (they come from
-                    the outer scope, not the call).
+                    Keyword argument defaults force early binding (they
+                    come from the outer scope, not the call).
 
                     Sequential arguments:
                     tkVarID -- a string such as PY_VAR23
                     param -- unknown meaning, usually ''
                     event -- an event name (such as 'w' in Python2)
+
+                    Keyword arguments:
+                    luid -- Specify the luid of the version to affect.
+                    k -- Specify the key of the value associated with
+                        the Tk var.
                     '''
                     # echo2("on_this_var_changed({},...)".format(args))
                     echo2("on_this_var_changed({},{},{},luid={},k={})"
