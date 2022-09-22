@@ -129,6 +129,9 @@ subproject. The "archive" option must be present. For example:
 
 
 ## Developer Notes
+### File formats
+- blnk: requires https://github.com/poiklos/blnk
+
 ### Date formats
 Python example:
 ```Python
