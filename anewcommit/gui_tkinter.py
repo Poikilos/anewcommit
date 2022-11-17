@@ -68,7 +68,7 @@ tryRepoDir = os.path.dirname(myDir)
 tryInit = os.path.join(tryRepoDir, "anewcommit", "__init__.py")
 
 if os.path.isfile(tryInit):
-    sys.stderr.write("The module will run from the repo: {}\n"
+    sys.stderr.write("* loading module from {}\n"
                      "".format(tryRepoDir))
     sys.stderr.flush()
     # Ensure the repo version is used if running from the repo.
