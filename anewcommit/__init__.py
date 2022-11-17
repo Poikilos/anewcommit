@@ -66,22 +66,14 @@ def s2or3(s):
 def get_verbosity():
     return verbosity
 
+verbosity_levels = [True, False, 0, 1, 2]
 
 def set_verbosity(verbosity_level):
     global verbosity
-    max_verbosity = 3
-    verbosities = list(range(max_verbosity+1))
-    if verbosity_level is True:
-        verbosity_level = 1
-    elif verbosity_level is False:
-        verbosity_level = 0
-    if verbosity_level not in verbosities:
-        vMsg = verbosity_level
-        if isinstance(vMsg, str):
-            vMsg = '"{}"'.format(vMsg)
+    if verbosity_level not in verbosity_levels:
         raise ValueError(
-            "verbosity_level must be 0 to {} not {}."
-            "".format(max_verbosity, vMsg)
+            "verbosity_level must be one of: {}"
+            "".format(verbosity_levels)
         )
     verbosity = verbosity_level
 

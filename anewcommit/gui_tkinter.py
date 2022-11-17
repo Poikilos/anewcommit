@@ -38,9 +38,7 @@ from dateutil import tz
 # dt2 = pytz.utc.localize(dt1)
 
 
-python_mr = sys.version_info[0]
-
-if python_mr >= 3:
+if sys.version_info.major >= 3:
     from tkinter import messagebox
     from tkinter import filedialog
     from tkinter import simpledialog
@@ -302,7 +300,7 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
         if 'values' in spec:
             expected_v = s2or3(spec['values'])
             # ^ It must be a list (See OptionMenu case below).
-            if python_mr < 3:
+            if sys.version_info.major < 3:
                 for evI in range(len(expected_v)):
                     expected_v[evI] = s2or3(expected_v[evI])
             if widget_type is None:
@@ -1443,7 +1441,7 @@ class MainFrame(SFContainer):
             #   (See <https://stackoverflow.com/questions/3431676/
             #   creating-functions-in-a-loop>)
             #   So force early binding:
-            if python_mr > 2:
+            if sys.version_info.major > 2:
                 # def on_this_var_changed(*args): #, luid=luid, k=k):
                 def on_this_var_changed(tkVarID, param, event, luid=luid, k=k):
                     # ^ params force early binding (they come from
@@ -1494,7 +1492,7 @@ class MainFrame(SFContainer):
                     except ValueError as ex:
                         messagebox.showerror("var_changed ValueError", str(ex))
                         raise ex
-            if python_mr >= 3:
+            if sys.version_info.major >= 3:
                 var.trace_add('write', on_this_var_changed)
             else:
                 var.trace('wu', on_this_var_changed)
