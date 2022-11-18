@@ -49,7 +49,7 @@ def du(path, subs, options, parentGitIgnoreLines):
       except for any file path that is in options['paths'].
     - Each entry in paths must be an absolute path.
     '''
-    # TODO: Switch list mechanism to filter_tree from pycodetool.ggrep.
+    # TODO: Switch list mechanism to filter_tree from hierosoft.ggrep.
     results = {}
     # results['order'] = []
     if subs is None:

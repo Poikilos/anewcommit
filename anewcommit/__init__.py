@@ -11,19 +11,16 @@ import pathlib
 from io import StringIO
 import csv
 
-my_dir = os.path.dirname(os.path.abspath(__file__))
-repo_dir = os.path.dirname(my_dir)
-repos_dir = os.path.dirname(repo_dir)
-try_repo_dir = os.path.join(repos_dir, "pycodetool")
-if os.path.isdir(try_repo_dir):
-    sys.path.insert(0, try_repo_dir)
+from find_pycodetool import pycodetool
 
 from pycodetool.parsing import (
     find_unquoted_not_commented,
     explode_unquoted,
 )
 
-from pycodetool.ggrep import (
+from find_hierosoft import hierosoft
+
+from hierosoft.ggrep import (
     gitignore_to_rsync_pair,
 )
 

@@ -14,9 +14,7 @@ Oct 10, 2022
 from __future__ import print_function
 import sys
 
-python_mr = sys.version_info[0]
-
-if python_mr >= 3:
+if sys.version_info.major >= 3:
     # from tkinter import messagebox
     # from tkinter import filedialog
     import tkinter as tk
@@ -39,11 +37,11 @@ def echo0(*args, **kwargs):
 
 
 class SFContainer(ttk.Frame):
-    # if python_mr < 3:
+    # if sys.version_info.major < 3:
     #     __metaclass__ = type
     #     # ^ causes: "a new-style class can't have only classic bases"
     def __init__(self, container, *args, **kwargs):
-        if python_mr > 2:
+        if sys.version_info.major > 2:
             try:
                 super().__init__(container, *args, **kwargs)
                 '''
