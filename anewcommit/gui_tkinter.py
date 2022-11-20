@@ -1987,6 +1987,21 @@ def usage():
 root = None
 
 def main():
+    if len(sys.argv) < 2:
+        test_case_dir = os.path.join(profile, "www.etc", "TCS", "VERSIONS")
+        # test_case_dir = os.path.join(profile, "tmp")
+        if os.path.isdir(test_case_dir):
+            print('Using detected test_case_dir "{}"'
+                  ''.format(test_case_dir))
+            sys.argv.append(test_case_dir)
+            set_verbosity(True)
+        elif os.path.isfile(os.path.join(os.getcwd(), "anewcommit.json")):
+            print('Using detected anewcommit.json in current working directory'
+                  ' "{}"'.format(os.getcwd()))
+            sys.argv.append(os.getcwd())
+        else:
+            print('No anewcommit.json in "{}"'.format(os.getcwd()))
+
     global root
     root = tk.Tk()
     root.geometry("800x600")
@@ -2046,16 +2061,10 @@ def main():
 
     root.mainloop()
     # (Urban & Murach, 2016, p. 515)
-
+    return 0
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        test_case_dir = os.path.join(profile, "www.etc", "TCS", "VERSIONS")
-        # test_case_dir = os.path.join(profile, "tmp")
-        if os.path.isdir(test_case_dir):
-            sys.argv.append(test_case_dir)
-            set_verbosity(True)
-    main()
+    sys.exit(main())
 
 
 # References

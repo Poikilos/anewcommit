@@ -6,8 +6,8 @@ import os
 import platform
 
 REPO_USER = "poikilos"
-REPO_NAME = "pycodetool"
-MODULE_NAME = "pycodetool"  # See also import pycodetool statements
+REPO_NAME = "anewcommit"
+MODULE_NAME = "anewcommit"  # See also import anewcommit statements
 
 GIT_SERVER= "https://github.com"
 
@@ -41,10 +41,10 @@ else:
     # use the one in the python path (or fail)
     # print("There is no {}".format(os.path.join(thisRepo, MODULE_NAME)))
 
-import pycodetool
+import anewcommit
 
 try:
-    import pycodetool
+    import anewcommit
 except ImportError as ex:
     echo0("sys.path={}".format(sys.path))
     echo0(str(ex))

@@ -11,14 +11,14 @@ import pathlib
 from io import StringIO
 import csv
 
-from find_pycodetool import pycodetool
+from .find_pycodetool import pycodetool
 
 from pycodetool.parsing import (
     find_unquoted_not_commented,
     explode_unquoted,
 )
 
-from find_hierosoft import hierosoft
+from .find_hierosoft import hierosoft
 
 from hierosoft.ggrep import (
     gitignore_to_rsync_pair,
@@ -1042,7 +1042,7 @@ class ANCProject:
     def get_gitignore_path(self):
         return os.path.join(self.get_project_dir(), ".gitignore")
 
-    def get_rsync_pair(self, ignore_from, rsync_from):
+    def get_rsync_pair(self, ignore_root, rsync_from):
         '''
         Get a pair of include and exclude files (one or both can be None if
         not applicable) from the projects .gitignore file.
@@ -1053,7 +1053,7 @@ class ANCProject:
         pycodetool.ggrep.
 
         Keyword arguments:
-        ignore_from -- Behave as though the .gitignore file is in this folder.
+        ignore_root -- Behave as though the .gitignore file is in this folder.
         '''
         gitignore_path = self.get_gitignore_path()
         if gitignore_path is None:
@@ -1061,12 +1061,12 @@ class ANCProject:
         if not os.path.isfile(gitignore_path):
             echo0('* There is no "{}"'.format(gitignore_path))
             return None, None
-        # ignore_from = os.path.dirname(gitignore_path)
+        # ignore_root = os.path.dirname(gitignore_path)
         return gitignore_to_rsync_pair(
             gitignore_path,
             rsync_from,
             self.get_cache_dir(),
-            ignore_from=ignore_from,
+            ignore_root=ignore_root,
         )
 
     def get_cache_dir(self):
@@ -1125,19 +1125,19 @@ class ANCProject:
                     cmd_parts = cmd_start.copy()
                     src = join_action_path(action, 'source')
                     dst = join_action_path(action, 'destination', path=tmp_dir)
-                    ignore_from = src
+                    ignore_root = src
                     source_parts = None
                     if action.get('source') is not None:
                         source_parts = split_subs()
                         while len(source_parts) > 1:
-                            ignore_from = os.dirname(source_parts)
+                            ignore_root = os.dirname(source_parts)
                             source_parts = source_parts[:-1]
                         source_parts = None
                     echo0('* Any absolute paths in gitignore will assume'
                           ' "{}" is the directory containing ".gitignore".'
-                          ''.format(ignore_from))
+                          ''.format(ignore_root))
                     include_tmp, exclude_tmp = self.get_rsync_pair(
-                        ignore_from,
+                        ignore_root,
                         src,
                     )
                     # The FIRST pattern is matched when using rsync, so
@@ -1173,11 +1173,13 @@ class ANCProject:
                 # TODO: do non-version verbs
         return tmp_dir
 
-
 def main():
-    pass
+    echo0('Error: There is no main in "{}".'
+          'It isn\'t intended to be used that way'
+          ''.format(os.realpath(__file__)))
+    return 1
 
 
 if __name__ == "__main__":
     echo0("Import this module into your program to use it.")
-    main()
+    sys.exit(1)
