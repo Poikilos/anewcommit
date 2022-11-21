@@ -24,80 +24,23 @@ from hierosoft.ggrep import (
     gitignore_to_rsync_pair,
 )
 
-python_mr = sys.version_info[0]
+from hierosoft.logging import (
+    echo0,
+    echo1,
+    echo2,
+    set_verbosity,
+    get_verbosity,
+)
 
-verbosity = 0
-for argI in range(1, len(sys.argv)):
-    arg = sys.argv[argI]
-    if arg.startswith("--"):
-        if arg == "--verbose":
-            verbosity = 1
-        elif arg == "--debug":
-            verbosity = 2
+from hierosoft import (
+    s2or3,
+    is_truthy,
+)
 
-
-def echo0(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
-
-
-def echo1(*args, **kwargs):
-    if verbosity < 1:
-        return
-    print(*args, file=sys.stderr, **kwargs)
-
-
-def echo2(*args, **kwargs):
-    if verbosity < 2:
-        return
-    print(*args, file=sys.stderr, **kwargs)
-
-
-def s2or3(s):
-    if python_mr < 3:
-        if type(s).__name__ == "unicode":
-            # ^ such as a string returned by json.load*
-            #   using Python 2
-            return str(s)
-    return s
-
-def get_verbosity():
-    return verbosity
-
-verbosity_levels = [True, False, 0, 1, 2]
-
-def set_verbosity(verbosity_level):
-    global verbosity
-    if verbosity_level not in verbosity_levels:
-        raise ValueError(
-            "verbosity_level must be one of: {}"
-            "".format(verbosity_levels)
-        )
-    verbosity = verbosity_level
 
 profile = os.environ.get('HOME')
 if platform.system() == "Windows":
     profile = os.environ.get('USERPROFILE')
-
-trues = ["on", "true", "yes", "1"]
-
-
-def is_truthy(v):
-    if v is None:
-        return False
-    elif v is True:
-        return True
-    elif v is False:
-        return False
-    elif isinstance(v, str):
-        if v.lower() in trues:
-            return True
-    elif isinstance(v, int):
-        if v != 0:
-            return True
-    elif isinstance(v, float):
-        if v != 0:
-            return True
-    return False
 
 
 def split_subs(path):
@@ -126,12 +69,11 @@ def split_root(path):
             break
         prev_path = path
     sub = ""
-    if path == None:
+    if path is None:
         path = raw_path
     else:
         sub = raw_path[len(path)+1:]
     return [path, sub]
-
 
 
 def extract(src_file, new_parent_dir, auto_sub=True,
@@ -154,7 +96,9 @@ def extract(src_file, new_parent_dir, auto_sub=True,
     """
     raise NotImplementedError("There is nothing implemented here yet.")
 
+
 default_ignores = ["Thumbs.db", ".DS_Store", "error_log", "temp"]
+
 
 def newest_file_dt_in(parent, too_new_dt=None, level=0,
                       ignores=default_ignores):
@@ -210,6 +154,7 @@ def newest_file_dt_in(parent, too_new_dt=None, level=0,
             echo0("- no date < {} could be found in {}"
                   "".format(too_new_dt, subPath))
     return path, newest_dt
+
 
 def open_file(path):
     # based on <https://stackoverflow.com/a/16204023/4541104>:
@@ -433,6 +378,7 @@ def new_post_process(luid=None):
     action['verb'] = 'post_process'
     action['commit'] = True
     return action
+
 
 def join_action_path(action, key, path=None):
     '''
@@ -723,7 +669,6 @@ class ANCProject:
             return True
         return False
 
-
     def _find_where(self, name, value):
         for i in range(len(self._actions)):
             if self._actions[i].get(name) == value:
@@ -833,7 +778,7 @@ class ANCProject:
                 self.path = path
                 self._actions = self.data['actions']
                 for action in self._actions:
-                    for k,v in action.items():
+                    for k, v in action.items():
                         action[k] = s2or3(v)
                 bad_indices = self._use_all_luids()
                 msg = None
@@ -871,7 +816,6 @@ class ANCProject:
         if self.project_dir is None:
             raise RuntimeError("The project dir or path must be set.")
         return self.project_dir
-
 
     def remove(self, index, add_undo_step=True):
         action = self._actions.pop(index)
@@ -969,7 +913,6 @@ class ANCProject:
             self._add_undo_step([undo_substep])
         if self.auto_save:
             self.save()
-
 
     def insert_where(self, name, value, action, direction=-1):
         '''
@@ -1082,7 +1025,6 @@ class ANCProject:
             os.makedirs(path)
         return path
 
-
     def generate_cache(self, luid, do_uncommitted=False):
         unfiltered_commits_dir = self.get_cached_dir("commits")
         tmp_dir = os.path.join(unfiltered_commits_dir, luid)
@@ -1172,6 +1114,7 @@ class ANCProject:
                     )
                 # TODO: do non-version verbs
         return tmp_dir
+
 
 def main():
     echo0('Error: There is no main in "{}".'
