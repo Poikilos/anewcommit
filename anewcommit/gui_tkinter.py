@@ -18,7 +18,7 @@ __metaclass__ = type
 #   error-typeerror-argument-1-must-be-type-not-classobj-when>
 import os
 import sys
-
+import shlex
 # from decimal import Decimal
 # import decimal
 # import locale as lc
@@ -1279,6 +1279,47 @@ class MainFrame(SFContainer):
             messagebox.showerror("Error", str(ex))
             raise ex
 
+    def run_or_showerror(self, command_parts):
+        '''
+        If we got this far (if binary/script exists) and it still
+        returned an error code, the most likely issue is that
+        the sunflower package isn't installed but the script is
+        still in ~/.local/bin such as if Python was upgraded.
+        '''
+        command = command_parts[0]
+        proc = subprocess.Popen(command_parts, stderr=subprocess.PIPE,
+                                stdout=subprocess.PIPE)
+        echo0("done process: {}".format(proc))
+        # messagebox.showerror("result: {}".format(result))
+        out, err = proc.communicate()
+        code = proc.returncode
+        # module_not_found = False
+        err_s = None
+        if err is not None:
+            # should always be non-None if stderr=subprocess.PIPE
+            err_s = err.decode("utf-8")
+            err_lines = err_s.strip().split("\n")
+            if len(err_lines) > 1:
+                # Reduce it down to something like:
+                # "ImportError: No module named sunflower"
+                err_s = err_lines[-1]
+        if code != 0:
+            if err_s is not None:
+                if (("ModuleNotFoundError" in err_s)
+                        or ("ImportError" in err_s)):
+                    err_s = ("{} may not be installed correctly. It says:"
+                              "\n\n".format(command)) + err_s
+                messagebox.showerror(
+                    "{} error {}".format(command, code),
+                    err_s,
+                )
+            else:
+                messagebox.showerror(
+                    "{} error {}".format(command, code),
+                    ("{} failed or wasn't installed correctly."
+                     "".format(command)),
+                )
+
     def view_step(self, click_i, command="sunflower"):
         from_i, from_range = self._project.get_affected(click_i)
         from_action = self._project._actions[from_i]
@@ -1310,7 +1351,7 @@ class MainFrame(SFContainer):
             #   (as long a sunflower is closed, remembered tabs won't load)
         else:
             c_args = [command, to_path]
-        subprocess.Popen(c_args)
+        self.run_or_showerror(c_args)
 
     def compare(self, start, direction, command="meld"):
         # ^ start may not be a version, so look for the related version below.
@@ -1352,7 +1393,8 @@ class MainFrame(SFContainer):
             # (as long a sunflower is closed, remembered tabs won't load)
         else:
             c_args = [command, from_path, to_path]
-        subprocess.Popen(c_args)
+        # subprocess.Popen(c_args)
+        self.run_or_showerror(c_args)
 
     def _append_row(self, action):
         '''
