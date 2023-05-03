@@ -259,6 +259,7 @@ def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
     NOTICE: The spacing may matter here, so check the final result for
     additional instances of private strings!
     '''
+    sec = config_section
     replacements = [
         ['mysqli_connect("{}", "{}", "{}");'.format(dbhost, dbuser, dbpass),
          ('mysqli_connect($config->{sec}->dbhost, $config->{sec}->dbuser, $config->{sec}->dbpass);'
@@ -282,9 +283,12 @@ def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
           "".format(sec=config_section)), False],
         [("define('SQLC', \"mysql://{}:{}@{}/{}\");"
           "".format(dbhost, dbuser, dbpass, dbname)),
-         ("define('SQLC', \"mysql://$config->{sec}->dbuser:$config->{sec}->dbpass@$config->{sec}->dbhost/$config->{sec}->dbname\");"
-          "".format(sec=config_section)), False],
+         ("define('SQLC', \"mysql://{$config->" + sec + "->dbuser}:{$config->"
+          + sec + "->dbpass}@{$config->" + sec + "->dbhost}/{$config->"
+          + sec + "->dbname}\");"), False],
           # ^ such as in Resources/xajaxGrid/person.inc.php
+          # ^ curly braces allow expressions (otherwise only 1-deep
+          #   variable interpolation occurs in PHP!)
     ]
 
     # only_if_criteria = replacements[0][0]
