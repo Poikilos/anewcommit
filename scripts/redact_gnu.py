@@ -22,24 +22,45 @@ Example:
 {
     "private": {
         "databases": [
-            ["DB1", "dbhost", "dbuser", "dbpass", "dbname"],
-            ["DB2", "db2host", "db2user", "db2pass", "db2name"]
+            ["DB1", "localhost", "user", "password", "some_database"],
+            ["DB2", "localhost", "other_user", "password", "other_database"]
         ],
         "comments": {
             "DB1": "The old database"
         }
     }
 }
+2. Make sure you have a config.php that is *not in a published folder*!
+   The file should have at least the same data as above, such as:
 
-2. Open a a terminal
-  3. cd to git/project1.
-  4. Run: python3 redact_gnu.py
-5. The files should now *all* have "dbhost" replaced with
+return (object) array(
+    'DB1' => (object) array(
+        'dbhost'=>"localhost",
+        'dbuser'=>"user",
+        'dbpass'=>"password",
+        'dbname'=>"some_database"
+    ),
+    'DB2' => (object) array(
+        'dbhost'=>"localhost",
+        'dbuser'=>"other_user",
+        'dbpass'=>"password",
+        'dbname'=>"other_database"
+    )
+);
+
+3. Open a a terminal
+  4. cd to git/project1.
+  5. Run: python3 redact_gnu.py
+6. The files should now *all* have "dbhost" replaced with
    $config->DB1->dbhost and so on within mysql and mysqli connection
    strings *only*. Quotes are removed where that is the cleanest
    solution (otherwise variable interpolation is used, such as in the
    case of PEAR connection strings).
-6. Any remaining instances of private data will be shown on the screen!
+7. Any remaining instances of private data will be shown on the screen!
+8. You must manually include your config file within the correct scope
+   of a php section (such as starting with "<?php") within your php file
+   such as via:
+   $config = include("../config.php");
 """
 import os
 import sys
