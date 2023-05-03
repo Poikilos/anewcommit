@@ -6,6 +6,13 @@ This script is part of <https://github.com/Poikilos/anewcommit>.
 
 Redact private data using GNU tools (which are fast).
 
+Requirements:
+- file (part of GNU)
+- dos2unix (command comes with package of same name)
+- GNU sed (such as via `brew install gnu-sed` on macOS)
+
+
+Instructions:
 Run this in a directory to redact the data within (The current working
 directory is used). You must provide a
 list of private database connection strings in JSON format. The JSON
@@ -67,10 +74,11 @@ import sys
 import subprocess
 import shlex
 import json
-
+import re
 
 def echo0(*args):
     print(*args, file=sys.stderr)
+
 
 
 # Based on method from anewcommit/anewcommit/gui_tkinter.py
@@ -150,14 +158,46 @@ def grep_paths(criteria, root):
     return run_or_showerror(cmd_parts, show_stdout=False, ignore_codes=[1])
 
 
-def sed(old, new, path, delimiter=None):
+sed_once_files = {}
+
+def sed(old, new, path, delimiter=None, once=False, only_if_new_missing=None):
     '''
     Replace old with new inside of the file designated by path.
 
     Keyword arguments:
     delimiter -- The sed command delimeter. This must be a character
         that is neither in old nor new.
+    once -- Only change the first instance of old.
+    only_if_new_missing -- Only do anything if new is *not in the file*.
+        If None, reverts to the value of the "once" argument.
     '''
+    if only_if_new_missing is None:
+        only_if_new_missing = once
+    if only_if_new_missing:
+        parent = os.path.dirname(path)
+        new_in_files = grep_paths(re.escape(new), parent)
+        if path in new_in_files:
+            # It already contains the new string.
+            return
+        else:
+            echo0('[sed only_if_new_missing={}]'
+                  ' path "{}" is not in detected matches: {}'
+                  ''.format(only_if_new_missing, path, new_in_files))
+    if once:
+        pairs = sed_once_files.get(path)
+        if pairs is not None:
+            for pair in pairs:
+                if pair[0] == old:
+                    echo0('[sed once={}] skipped "{}" since the same criteria'
+                          ' was replaced in a previous call that also used'
+                          ' the "once" option.'
+                          ''.format(once, path))
+                    return
+            sed_once_files[path].append((old, new))
+        else:
+            sed_once_files[path] = [(old, new)]
+
+    sed_chars = "$.*[^"  # no '\' assumes it was included intentionally!
     if path is None:
         raise ValueError("Path is None.")
     if path.strip() == "":
@@ -200,6 +240,9 @@ def sed(old, new, path, delimiter=None):
                 "The specified delimiter '{}' is in new string \"{}\""
                 "".format(delimiter, old)
             )
+    for sed_char in sed_chars: # + [delimiter]: # delimiter fixed above
+        old = old.replace(sed_char, "\\" + sed_char)
+        new = new.replace(sed_char, "\\" + sed_char)
     if len(delimiter) != 1:
         raise ValueError(
             'The delimiter must be exactly 1 character but is "{}"'
@@ -210,11 +253,36 @@ def sed(old, new, path, delimiter=None):
     while os.path.isfile(dst):
         num += 1
         dst = path + ".tmp{}".format(num)
-    print("[sed] {}".format(path))
+    # print("[sed] {}".format(path))
     sed_command = "s{d}{old}{d}{new}{d}".format(old=old, new=new, d=delimiter)
+    if once:
+        for bad_char in ["{", "}"]:
+            if bad_char in sed_command:
+                raise ValueError(
+                    "'{}' cannot be in {} when using the once option."
+                    "".format(bad_char, sed_command)
+                )
+        sub_command = "s{d}{d}{new}{d}".format(new=new, d=delimiter)
+        # ^ same as sed_command except without redundant criteria.
+        #   - 2 delimiters means use previous criteria (prepended below)
+        sep = delimiter
+        sed_command = "0,/" + old + "/{" + sub_command + "}"
+        # ^ '/' since there *cannot* be a custom separator using this
+        #   notation!  It is fine to have a custom delimiter after 's'
+        #   in sub_command even though / is used in this part.
+        echo0("Running: sed -i -e '{}' '{}'".format(sed_command, path))
+        '''
+        ^ such as `sed '0,/Apple/{s/Apple/Banana/}' input_filename`
+          or `sed '0,/Apple/{s//Banana/}' input_filename`
+          or `sed '0,/Apple/s//Banana/' input_filename`
+          (works only with GNU sed)
+          "start at line 0, continue until you match 'Apple', execute
+          the substitution in curly brackets"
+          as per <https://stackoverflow.com/a/9453461>.
+        '''
     # with open(dst, 'w') as outs:
     cmd_parts = ["sed", "-i", "-e", sed_command, path]
-    echo0("Running: {}".format(shlex.join(cmd_parts)))  # WARNING: private maybe
+    # echo0("Running: {}".format(shlex.join(cmd_parts)))  # WARNING: private
     subprocess.call(cmd_parts)
     # -e: Add the script to the commands to be executed
     # sed_command: usually this is in single quotes.
@@ -271,55 +339,54 @@ def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
     '''
     sec = config_section
     conf = config_var
-    replacements = [
-        ['mysqli_connect("{}", "{}", "{}");'.format(dbhost, dbuser, dbpass),
-         ('mysqli_connect(${conf}->{sec}->dbhost, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass);'
-          ''.format(conf=config_var, sec=config_section)), False],
-        ['mysql_connect("{}", "{}", "{}");'.format(dbhost, dbuser, dbpass),
-         ('mysql_connect(${conf}->{sec}->dbhost, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass);'
-          ''.format(conf=config_var, sec=config_section)), False],
-        ['mysqli_select_db($conn,"{}");'.format(dbname),
-         'mysqli_select_db($conn,${}->{}->dbname);'.format(config_var, config_section), True],
-        ['mysqli_select_db($conn, "{}");'.format(dbname),
-         'mysqli_select_db($conn, ${}->{}->dbname);'.format(config_var, config_section), True],
-        ['mysql_select_db("{}");'.format(dbname),
-         'mysql_select_db(${}->{}->dbname);'.format(config_var, config_section), True],
-        ['mysql_select_db("{}", $conn);'.format(dbname),
-         'mysql_select_db(${}->{}->dbname, $conn);'.format(config_var, config_section), True],
-        ['mysql_select_db("{}",$conn);'.format(dbname),
-         'mysql_select_db(${}->{}->dbname,$conn);'.format(config_var, config_section), True],
-        [("EyeMySQLAdap('{}', '{}', '{}', '{}');"
-          "".format(dbhost, dbuser, dbpass, dbname)),
-         ("EyeMySQLAdap(${conf}->{sec}->dbname, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass, ${conf}->{sec}->dbname);"
-          "".format(conf=config_var, sec=config_section)), False],
-        [("define('SQLC', \"mysql://{}:{}@{}/{}\");"
-          "".format(dbhost, dbuser, dbpass, dbname)),
-         ("define('SQLC', \"mysql://{$"+conf+"->"+sec+"->dbuser}:{$"
-          +conf+"->"+sec+"->dbpass}@{$"+conf+"->"+sec+"->dbhost}/{$"
-          +conf+"->"+sec+"->dbname}\");"), False],
-          # ^ such as in Resources/xajaxGrid/person.inc.php
-          # ^ curly braces allow expressions (otherwise only 1-deep
-          #   variable interpolation occurs in PHP!)
-    ]
+    replacements = []
+    # if None not in [dbhost, dbuser, dbpass]:
+    if dbhost is not None:
+        replacements += [
+            ['mysqli_connect("{}", "{}", "{}");'.format(dbhost, dbuser, dbpass),
+             ('mysqli_connect(${conf}->{sec}->dbhost, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass);'
+              ''.format(conf=config_var, sec=config_section)), False],
+            ['mysql_connect("{}", "{}", "{}");'.format(dbhost, dbuser, dbpass),
+             ('mysql_connect(${conf}->{sec}->dbhost, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass);'
+              ''.format(conf=config_var, sec=config_section)), False],
+            ['mysqli_select_db($conn,"{}");'.format(dbname),
+             'mysqli_select_db($conn,${}->{}->dbname);'.format(config_var, config_section), True],
+            ['mysqli_select_db($conn, "{}");'.format(dbname),
+             'mysqli_select_db($conn, ${}->{}->dbname);'.format(config_var, config_section), True],
+            ['mysql_select_db("{}");'.format(dbname),
+             'mysql_select_db(${}->{}->dbname);'.format(config_var, config_section), True],
+            ['mysql_select_db("{}", $conn);'.format(dbname),
+             'mysql_select_db(${}->{}->dbname, $conn);'.format(config_var, config_section), True],
+            ['mysql_select_db("{}",$conn);'.format(dbname),
+             'mysql_select_db(${}->{}->dbname,$conn);'.format(config_var, config_section), True],
+            [("EyeMySQLAdap('{}', '{}', '{}', '{}');"
+              "".format(dbhost, dbuser, dbpass, dbname)),
+             ("EyeMySQLAdap(${conf}->{sec}->dbname, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass, ${conf}->{sec}->dbname);"
+              "".format(conf=config_var, sec=config_section)), False],
+            [("define('SQLC', \"mysql://{}:{}@{}/{}\");"
+              "".format(dbhost, dbuser, dbpass, dbname)),
+             ("define('SQLC', \"mysql://{$"+conf+"->"+sec+"->dbuser}:{$"
+              +conf+"->"+sec+"->dbpass}@{$"+conf+"->"+sec+"->dbhost}/{$"
+              +conf+"->"+sec+"->dbname}\");"), False],
+              # ^ such as in Resources/xajaxGrid/person.inc.php
+              # ^ curly braces allow expressions (otherwise only 1-deep
+              #   variable interpolation occurs in PHP!)
+        ]
+    else:
+        replacements += [
+            ["'{}' => '{}',".format(dbuser, dbpass),
+             ("${conf}->{sec}->dbuser => ${conf}->{sec}->dbpass,"
+              "".format(conf=config_var, sec=config_section)), False],
+        ]
 
     # only_if_criteria = replacements[0][0]
     only_if_criteria = "mysql.*connect.*"+dbuser+".*"+dbpass
     real_root = os.path.realpath(root)
+    del root
     paths = grep_paths(only_if_criteria, real_root)
     # print("Paths matching {} in {}:".format(only_if_criteria, root))
     ignore_names = ['.git', '.gitignore']
 
-    # FIXME: debug only:
-    '''
-    if config_section == "old":
-        flag_path = "/home/owner/git/tcstc/public/TimeClockServer.php"
-        if flag_path not in paths:
-            raise RuntimeError(
-                '`{}` did not produce "{}", only {}'
-                ''.format(only_if_criteria, flag_path, paths)
-            )
-    '''
-    # FIXME: ^ doesn't raise exception, but mysql_select_db not replaced
     for path in paths:
         for replacement in replacements:
             ignore = False
@@ -340,7 +407,12 @@ def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
     # FIXME: debug only:
     if config_section == "old":
         echo0("config_section: {}".format(config_section))
-        problems = run_or_showerror(['grep', 'mysql.*_select_db("{}");'.format(dbname), "-n", "-r"], show_stdout=False, ignore_codes=[1])
+        problems = run_or_showerror(
+            ['grep', 'mysql.*_select_db("{}");'.format(dbname), "-n", "-r",
+             real_root],
+            show_stdout=False,
+            ignore_codes=[1],
+        )
         if len(problems) > 0:
             for problem in problems:
                 if "error_log:" not in problem:
@@ -363,7 +435,30 @@ def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
                 if not replace_if_old:
                     sed(old, new, path)
                 # else was already done if old was found
-
+    old = '<?php';
+    new = ('<?php\\n${conf} = include("../{conf}.php");\\n'
+           ''.format(conf=config_var));
+    # ^ The extra newlines are there because in some cases there is no
+    #   newline after "<?php" and the whole thing could be one line.
+    changed_paths = grep_paths('${}->'.format(config_var),real_root)
+    for changed_path in changed_paths:
+        if not changed_path.startswith(real_root):
+            # This will never happen if logic in code is correct:
+            raise RuntimeError("Can't revise path outside of root: {}"
+                               "".format(real_root))
+        offset = 1
+        if real_root.endswith(os.path.sep):
+            # A trailing slash is required if using a drive letter on
+            #   Windows :(, and regardless, the caller may have provided
+            #   a trailing slash.
+            offset = 0
+        sub = changed_path[len(real_root)+offset:]  # +offset to skip '/'
+        sub_parts = splitall(sub)
+        this_new = new
+        if len(sub_parts) > 1:
+            this_new = new.replace("../", "../"*len(sub_parts))
+        sed(old, this_new, changed_path, once=True)
+    return 0
 
 private_example = '''
 {
@@ -385,20 +480,29 @@ def usage():
 
 def private_usage(meta_path):
     usage()
-    echo0('The file "{}" should be JSON structured like the example above.')
+    echo0('The file "{}" should be JSON structured like the example above.'
+          ''.format(meta_path))
     # echo0(private_example)
 
 
 def main():
+    PASSWORD_COL = ARG_NAMES.index('dbpass')
+    real_root = os.path.realpath(os.getcwd())
     this_dir_name = os.path.basename(os.getcwd())
     meta_name = "{}-private.json".format(this_dir_name)
     meta_path = os.path.join(os.path.dirname(os.getcwd()), meta_name)
     parent_dir = os.path.dirname(os.getcwd())
     try_path = os.path.join(os.path.dirname(parent_dir), meta_name)
+    tried_path = meta_path
     if os.path.isfile(try_path):
         meta_path = try_path
     if not os.path.isfile(meta_path):
         private_usage(meta_path)
+        echo0("The file does not exist.")
+        if tried_path != meta_path:
+            echo0('- also tried "{}"'.format(tried_path))
+        elif try_path != meta_path:
+            echo0('- also tried "{}"'.format(try_path))
         return 1
     try:
         with open(meta_path, 'r') as ins:
@@ -439,21 +543,37 @@ def main():
     del site_n
 
     for site in replacements:
-        redact_mysql_statements(*site)
+        redact_mysql_statements(*site, root=real_root)
 
     # return 0
     print("Any remaining instances will appear below.")
+
+    done_values = []
     for site in replacements:
         results = []
+        is_db = site[1] is not None
         for argi in range(1, len(ARG_NAMES)):
-            lines = run_or_showerror(['grep', site[argi], "-n", "-r"], show_stdout=False, ignore_codes=[1])
+            if site[argi] is None:
+                # Such as user-pass combo with no database such as custom php
+                continue
+            if (not is_db) and (argi != PASSWORD_COL):
+                # Only the password matters in this case,
+                #   such as user-pass combo with no database such as custom php.
+                continue
+            if site[argi] in done_values:
+                # Only show instances once.
+                continue
+            else:
+                done_values.append(site[argi])
+            lines = run_or_showerror(['grep', site[argi], "-n", "-r", real_root], show_stdout=False, ignore_codes=[1])
             good_line_count = 0
             good_lines = []
             for line in lines:
                 if "error_log:" not in line:
                     good_lines.append(line)
             if len(good_lines) > 0:
-                results.append("[redact_gnu main]  {}:".format(ARG_NAMES[argi]))
+                results.append("[redact_gnu main]  {}={}:"
+                               "".format(ARG_NAMES[argi], site[argi]))
                 results += good_lines
             # ^ ignore 1 (means not found)
         if len(results) > 0:
