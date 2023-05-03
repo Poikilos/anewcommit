@@ -14,8 +14,8 @@ must be named the same as the directory except ending with
 "-private.json".
 
 Example:
-1. If your project directory is git/project1, place a file called
-   "project1-private.json" in git.
+1. If your project directory is ~/git/project1, place a file called
+   "project1-private.json" in ~/git or ~.
    The JSON file must contain at least one database in the following
    format:
 
@@ -60,7 +60,7 @@ return (object) array(
 8. You must manually include your config file within the correct scope
    of a php section (such as starting with "<?php") within your php file
    such as via:
-   $config = include("../config.php");
+   $redact = include("../redact.php");
 """
 import os
 import sys
@@ -251,41 +251,52 @@ ARG_NAMES = ['config_section', 'dbhost', 'dbuser', 'dbpass', 'dbname']
 
 
 def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
-                            root=os.getcwd()):
+                            root=os.getcwd(), config_var="redact"):
     '''
     Replace private substrigs in mysqli, EyeMySQLAdap, and SQLC (Pear)
     lines.
 
     NOTICE: The spacing may matter here, so check the final result for
     additional instances of private strings!
+
+    Keyword arguments:
+    root -- (default: current working directory) The directory to
+        redact.
+    config_var -- The variable name to use as the config, such as
+        "redact" (default) if you are adding
+        `$redact = include("../redact.php");`
+        to your PHP file. See redact documentation for more info.
+        Using the variable "config" is *not* recommended since that is
+        used by other web applications and frameworks.
     '''
     sec = config_section
+    conf = config_var
     replacements = [
         ['mysqli_connect("{}", "{}", "{}");'.format(dbhost, dbuser, dbpass),
-         ('mysqli_connect($config->{sec}->dbhost, $config->{sec}->dbuser, $config->{sec}->dbpass);'
-          ''.format(sec=config_section)), False],
+         ('mysqli_connect(${conf}->{sec}->dbhost, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass);'
+          ''.format(conf=config_var, sec=config_section)), False],
         ['mysql_connect("{}", "{}", "{}");'.format(dbhost, dbuser, dbpass),
-         ('mysql_connect($config->{sec}->dbhost, $config->{sec}->dbuser, $config->{sec}->dbpass);'
-          ''.format(sec=config_section)), False],
+         ('mysql_connect(${conf}->{sec}->dbhost, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass);'
+          ''.format(conf=config_var, sec=config_section)), False],
         ['mysqli_select_db($conn,"{}");'.format(dbname),
-         'mysqli_select_db($conn,$config->{}->dbname);'.format(config_section), True],
+         'mysqli_select_db($conn,${}->{}->dbname);'.format(config_var, config_section), True],
         ['mysqli_select_db($conn, "{}");'.format(dbname),
-         'mysqli_select_db($conn, $config->{}->dbname);'.format(config_section), True],
+         'mysqli_select_db($conn, ${}->{}->dbname);'.format(config_var, config_section), True],
         ['mysql_select_db("{}");'.format(dbname),
-         'mysql_select_db($config->{}->dbname);'.format(config_section), True],
+         'mysql_select_db(${}->{}->dbname);'.format(config_var, config_section), True],
         ['mysql_select_db("{}", $conn);'.format(dbname),
-         'mysql_select_db($config->{}->dbname, $conn);'.format(config_section), True],
+         'mysql_select_db(${}->{}->dbname, $conn);'.format(config_var, config_section), True],
         ['mysql_select_db("{}",$conn);'.format(dbname),
-         'mysql_select_db($config->{}->dbname,$conn);'.format(config_section), True],
+         'mysql_select_db(${}->{}->dbname,$conn);'.format(config_var, config_section), True],
         [("EyeMySQLAdap('{}', '{}', '{}', '{}');"
           "".format(dbhost, dbuser, dbpass, dbname)),
-         ("EyeMySQLAdap($config->{sec}->dbname, $config->{sec}->dbuser, $config->{sec}->dbpass, $config->{sec}->dbname);"
-          "".format(sec=config_section)), False],
+         ("EyeMySQLAdap(${conf}->{sec}->dbname, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass, ${conf}->{sec}->dbname);"
+          "".format(conf=config_var, sec=config_section)), False],
         [("define('SQLC', \"mysql://{}:{}@{}/{}\");"
           "".format(dbhost, dbuser, dbpass, dbname)),
-         ("define('SQLC', \"mysql://{$config->" + sec + "->dbuser}:{$config->"
-          + sec + "->dbpass}@{$config->" + sec + "->dbhost}/{$config->"
-          + sec + "->dbname}\");"), False],
+         ("define('SQLC', \"mysql://{$"+conf+"->"+sec+"->dbuser}:{$"
+          +conf+"->"+sec+"->dbpass}@{$"+conf+"->"+sec+"->dbhost}/{$"
+          +conf+"->"+sec+"->dbname}\");"), False],
           # ^ such as in Resources/xajaxGrid/person.inc.php
           # ^ curly braces allow expressions (otherwise only 1-deep
           #   variable interpolation occurs in PHP!)
@@ -382,6 +393,10 @@ def main():
     this_dir_name = os.path.basename(os.getcwd())
     meta_name = "{}-private.json".format(this_dir_name)
     meta_path = os.path.join(os.path.dirname(os.getcwd()), meta_name)
+    parent_dir = os.path.dirname(os.getcwd())
+    try_path = os.path.join(os.path.dirname(parent_dir), meta_name)
+    if os.path.isfile(try_path):
+        meta_path = try_path
     if not os.path.isfile(meta_path):
         private_usage(meta_path)
         return 1
