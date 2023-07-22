@@ -68,6 +68,13 @@ return (object) array(
    of a php section (such as starting with "<?php") within your php file
    such as via:
    $redact = include("../redact.php");
+   - If you use the auto-inserted global (occurs on <?php but not <?)
+     then at the beginning of each function you must manually add:
+     global $redact;
+     - Or you can also use the include statement
+       if it has the same number of ../ instances that were
+       automatically inserted (or whatever is correct based on your
+       redact.php location).
 """
 import os
 import sys
@@ -179,10 +186,12 @@ def sed(old, new, path, delimiter=None, once=False, only_if_new_missing=None):
         if path in new_in_files:
             # It already contains the new string.
             return
+        '''
         else:
             echo0('[sed only_if_new_missing={}]'
                   ' path "{}" is not in detected matches: {}'
                   ''.format(only_if_new_missing, path, new_in_files))
+        '''
     if once:
         pairs = sed_once_files.get(path)
         if pairs is not None:
@@ -343,31 +352,31 @@ def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
     # if None not in [dbhost, dbuser, dbpass]:
     if dbhost is not None:
         replacements += [
-            ['mysqli_connect("{}", "{}", "{}");'.format(dbhost, dbuser, dbpass),
-             ('mysqli_connect(${conf}->{sec}->dbhost, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass);'
+            ['mysqli_connect("{}", "{}", "{}")'.format(dbhost, dbuser, dbpass),
+             ('mysqli_connect(${conf}->{sec}->dbhost, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass)'
               ''.format(conf=config_var, sec=config_section)), False],
-            ['mysql_connect("{}", "{}", "{}");'.format(dbhost, dbuser, dbpass),
-             ('mysql_connect(${conf}->{sec}->dbhost, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass);'
+            ['mysql_connect("{}", "{}", "{}")'.format(dbhost, dbuser, dbpass),
+             ('mysql_connect(${conf}->{sec}->dbhost, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass)'
               ''.format(conf=config_var, sec=config_section)), False],
-            ['mysqli_select_db($conn,"{}");'.format(dbname),
-             'mysqli_select_db($conn,${}->{}->dbname);'.format(config_var, config_section), True],
-            ['mysqli_select_db($conn, "{}");'.format(dbname),
-             'mysqli_select_db($conn, ${}->{}->dbname);'.format(config_var, config_section), True],
-            ['mysql_select_db("{}");'.format(dbname),
-             'mysql_select_db(${}->{}->dbname);'.format(config_var, config_section), True],
-            ['mysql_select_db("{}", $conn);'.format(dbname),
-             'mysql_select_db(${}->{}->dbname, $conn);'.format(config_var, config_section), True],
-            ['mysql_select_db("{}",$conn);'.format(dbname),
-             'mysql_select_db(${}->{}->dbname,$conn);'.format(config_var, config_section), True],
-            [("EyeMySQLAdap('{}', '{}', '{}', '{}');"
+            ['mysqli_select_db($conn,"{}")'.format(dbname),
+             'mysqli_select_db($conn,${}->{}->dbname)'.format(config_var, config_section), True],
+            ['mysqli_select_db($conn, "{}")'.format(dbname),
+             'mysqli_select_db($conn, ${}->{}->dbname)'.format(config_var, config_section), True],
+            ['mysql_select_db("{}")'.format(dbname),
+             'mysql_select_db(${}->{}->dbname)'.format(config_var, config_section), True],
+            ['mysql_select_db("{}", $conn)'.format(dbname),
+             'mysql_select_db(${}->{}->dbname, $conn)'.format(config_var, config_section), True],
+            ['mysql_select_db("{}",$conn)'.format(dbname),
+             'mysql_select_db(${}->{}->dbname,$conn)'.format(config_var, config_section), True],
+            [("EyeMySQLAdap('{}', '{}', '{}', '{}')"
               "".format(dbhost, dbuser, dbpass, dbname)),
-             ("EyeMySQLAdap(${conf}->{sec}->dbname, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass, ${conf}->{sec}->dbname);"
+             ("EyeMySQLAdap(${conf}->{sec}->dbname, ${conf}->{sec}->dbuser, ${conf}->{sec}->dbpass, ${conf}->{sec}->dbname)"
               "".format(conf=config_var, sec=config_section)), False],
-            [("define('SQLC', \"mysql://{}:{}@{}/{}\");"
+            [("define('SQLC', \"mysql://{}:{}@{}/{}\")"
               "".format(dbhost, dbuser, dbpass, dbname)),
              ("define('SQLC', \"mysql://{$"+conf+"->"+sec+"->dbuser}:{$"
               +conf+"->"+sec+"->dbpass}@{$"+conf+"->"+sec+"->dbhost}/{$"
-              +conf+"->"+sec+"->dbname}\");"), False],
+              +conf+"->"+sec+"->dbname}\")"), False],
               # ^ such as in Resources/xajaxGrid/person.inc.php
               # ^ curly braces allow expressions (otherwise only 1-deep
               #   variable interpolation occurs in PHP!)
