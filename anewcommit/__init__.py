@@ -1072,7 +1072,7 @@ class ANCProject:
                     if action.get('source') is not None:
                         source_parts = split_subs()
                         while len(source_parts) > 1:
-                            ignore_root = os.dirname(source_parts)
+                            ignore_root = os.path.dirname(source_parts)
                             source_parts = source_parts[:-1]
                         source_parts = None
                     echo0('* Any absolute paths in gitignore will assume'
