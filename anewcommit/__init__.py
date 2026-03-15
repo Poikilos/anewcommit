@@ -24,7 +24,7 @@ from hierosoft.ggrep import (
     gitignore_to_rsync_pair,
 )
 
-from hierosoft.logging import (
+from hierosoft.morelogging import (
     echo0,
     echo1,
     echo2,
