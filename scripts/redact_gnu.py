@@ -303,7 +303,7 @@ def sed(old, new, path, delimiter=None, once=False, only_if_new_missing=None):
     # (See <https://askubuntu.com/a/747452>)
 
 
-def splitall(path):
+def split_all(path):
     '''
     Split every part of the path. See
     <https://www.oreilly.com/library/view/python-cookbook/0596001673/ch04s16.html>.
@@ -403,7 +403,7 @@ def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
     for path in paths:
         for replacement in replacements:
             ignore = False
-            for part in splitall(path):
+            for part in split_all(path):
                 if part in ignore_names:
                     echo0('[redact_mysql_statements] ignoring "{}"'
                           ''.format(path))
@@ -435,7 +435,7 @@ def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
         for sub in files:
             path = os.path.join(root, sub)
             ignore = False
-            for part in splitall(path):
+            for part in split_all(path):
                 if part in ignore_names:
                     echo0('[redact_mysql_statements] ignoring "{}"'
                           ''.format(path))
@@ -466,7 +466,7 @@ def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
             #   a trailing slash.
             offset = 0
         sub = changed_path[len(real_root)+offset:]  # +offset to skip '/'
-        sub_parts = splitall(sub)
+        sub_parts = split_all(sub)
         this_new = new
         if len(sub_parts) > 1:
             this_new = new.replace("../", "../"*len(sub_parts))

@@ -86,22 +86,21 @@ def split_root(path):
 
 def extract(src_file, new_parent_dir, auto_sub=True,
             auto_sub_name=None):
-    """
+    '''
     Extract any known archive file type to a specified directory.
 
-    Sequential arguments:
-    src_file -- Extract this archive file.
-    new_parent_dir -- Place the extracted files into this directory
-        (after temp directory).
-
-    Keyword arguments:
-    auto_sub -- Automatically create a subdirectory only if there is
-        more than one item directly under the root of the archive. If
-        False, extract as-is to new_parent_dir (even if that results in
-        a subdirectory that is the name of the original directory).
-    auto_sub_name -- If auto_sub is true, rename the extracted or
-        created directory to the value of this string.
-    """
+    Args:
+        src_file (str): Extract this archive file.
+        new_parent_dir (str): Place the extracted files into this
+            directory (after temp directory).
+        auto_sub (bool, optional): Automatically create a subdirectory
+            only if there is more than one item directly under the root
+            of the archive. If False, extract as-is to new_parent_dir
+            (even if that results in a subdirectory that is the name of
+            the original directory).
+        auto_sub_name (str, optional): If auto_sub is true, rename the
+            extracted or created directory to the value of this string.
+    '''
     raise NotImplementedError("There is nothing implemented here yet.")
 
 
@@ -113,13 +112,14 @@ def newest_file_dt_in(parent, too_new_dt=None, level=0,
     '''
     Get the datetime of the latest file in parent recursively.
 
-    Keyword arguments:
-    too_new_dt -- skip files with a datetime >= too_new_dt if not None.
-    level -- Determine the directory depth for debugging use only (doesn't
-        affect results).
+    Args:
+        too_new_dt (datetime): skip files with a datetime >= too_new_dt
+            if not None.
+        level (int): Determine the directory depth for debugging use
+            only (doesn't affect results).
 
     Returns:
-    a tuple (path, datetime)
+        tuple(str, datetime): a tuple (path, datetime)
     '''
     if too_new_dt is not None:
         if too_new_dt.tzinfo is None:
@@ -215,7 +215,7 @@ def parse_statement(statement):
             result['source'] = parts[1]
             result['destination'] = parts[3]
         elif (len(parts) == 3) and (parts[1] == "as"):
-            # The whole thing is the sourse in a "use as" statement like
+            # The whole thing is the source in a "use as" statement like
             # use as <destination>
             result['destination'] = parts[2]
         else:
@@ -280,9 +280,9 @@ def find_param(haystack, needle, min_param=0, max_param=-1, fs=",",
     This function requires find_unquoted_not_commented and
     explode_unquoted from the parsing submodule of Poikilos' pycodetool.
 
-    Keyword arguments:
-    fs -- field separator
-    quotes -- what quotes are allowed
+    Args:
+        fs (str, optional): field separator
+        quotes (str, optional): what quotes are allowed
     '''
     paren1_i = find_unquoted_not_commented(haystack, "(")
     if paren1_i < 0:
@@ -295,14 +295,15 @@ def find_param(haystack, needle, min_param=0, max_param=-1, fs=",",
 
 def _new_process(luid=None):
     '''
-    Keyword arguments:
-    luid -- If None, generate a LUID (a locally-unique ID). The value
-        must be a node ID that is unique within the scope of the
-        project file, for any use such as by gui component dictionaries.
-        There is one luid for each action, so there may be multiple
-        named widgets in the group. If a unique id is necessary for
-        every widget in your widget system, you can use `luid + "." +
-        key` for the key where key is the key in the action dictionary.
+    Args:
+        luid (str, optional): If None, generate a LUID (a locally-unique
+            ID). The value must be a node ID that is unique within the
+            scope of the project file, for any use such as by gui
+            component dictionaries. There is one luid for each action,
+            so there may be multiple named widgets in the group. If a
+            unique id is necessary for every widget in your widget
+            system, you can use `luid + "." + key` for the key where key
+            is the key in the action dictionary.
     '''
     if luid is None:
         luid = gen_luid()
@@ -337,11 +338,12 @@ VERBS_HELP = {
 
 def new_version(path, mode='delete_then_add', luid=None, name=None):
     '''
-    Keyword arguments:
-    luid -- If None, generate a LUID. See _new_process for more info.
-    name -- Set the visible name (Used as commit summary if this source is
-        committed). If None, the name will be generated as the leaf of the
-        path.
+    Args:
+        luid (str, optional): If None, generate a LUID. See _new_process
+            for more info.
+        name (str, optional): Set the visible name (Used as commit
+            summary if this source is committed). If None, the name will
+            be generated as the leaf of the path.
     '''
     action = _new_process(luid=luid)
     if mode not in MODES:
@@ -362,8 +364,9 @@ def new_pre_process(luid=None):
     '''
     A pre-process verb affects the next version in the list of _actions.
 
-    Keyword arguments:
-    luid -- If None, generate a LUID. See _new_process for more info.
+    Args:
+        luid (str, optional): If None, generate a LUID. See _new_process
+            for more info.
     '''
     action = _new_process()
     action['verb'] = 'pre_process'
@@ -379,8 +382,9 @@ def new_post_process(luid=None):
     _actions. For example, renaming directories or files as a separate
     commit may make committing the next version more clean.
 
-    Keyword arguments:
-    luid -- If None, generate a LUID. See _new_process for more info.
+    Args:
+        luid (str, optional) If None, generate a LUID. See _new_process
+            for more info.
     '''
     action = _new_process()
     action['verb'] = 'post_process'
@@ -390,12 +394,11 @@ def new_post_process(luid=None):
 
 def join_action_path(action, key, path=None):
     '''
-    Sequential arguments:
-    action -- This must be a version action such as created using the
-        new_version function.
-
-    Keyword arguments:
-    path -- Use this as the base path. If None action['path'] will be used.
+    Args:
+        action (str): This must be a version action such as created
+            using the new_version function.
+        path (str, optional): Use this as the base path. If None
+            action['path'] will be used.
     '''
     good_keys = ['source', 'destination']
     if action['verb'] not in VERSION_VERBS:
