@@ -6,18 +6,25 @@ Created on Wed Jul  6 17:35:01 2022
 @author: Jake "Poikilos" Gustafson
 """
 
-import unittest
-import sys
 import os
+import sys
+import unittest
 
-import anewcommit
-from anewcommit import (
+TESTS_DIR = os.path.dirname(__file__)
+REPO_DIR = os.path.dirname(TESTS_DIR)
+
+if __name__ == "__main__":
+    sys.path.insert(0, REPO_DIR)
+
+# import anewcommit  # noqa: E402
+from anewcommit import (  # noqa: E402
     echo0,
     split_statement,
     parse_statement,
     split_root,
     split_subs,
 )
+
 
 class TestParsing(unittest.TestCase):
     def test_split_statement(self):
@@ -35,9 +42,16 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(subCmd['source'], "Primary Site")
         self.assertTrue(subCmd.get('destination') is None)
 
+        # Use "Primary Site" subfolder as program named "main":
         useCmd = parse_statement('use "Primary Site" as main')
         self.assertEqual(useCmd['command'], "use")
         self.assertEqual(useCmd['source'], "Primary Site")
+        self.assertEqual(useCmd['destination'], "main")
+
+        # Use root of source as program named "main":
+        useCmd = parse_statement('use as main')
+        self.assertEqual(useCmd['command'], "use")
+        self.assertNotIn('source', useCmd)  # No source (implies ".")
         self.assertEqual(useCmd['destination'], "main")
 
         exceptionIsGood = False
@@ -73,3 +87,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(split_subs("/a/b"), ["/a", "b"])
         self.assertEqual(split_subs("a"), ["a"])
         self.assertEqual(split_subs("/a"), ["/a"])
+
+
+if __name__ == "__main__":
+    unittest.main()

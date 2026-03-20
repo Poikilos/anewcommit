@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import unittest
-import sys
 import os
+import sys
+import unittest
+
+if __name__ == "__main__":
+    TESTS_DIR = os.path.dirname(__file__)
+    REPO_DIR = os.path.dirname(TESTS_DIR)
+    sys.path.insert(0, REPO_DIR)
 
 import anewcommit
 from anewcommit import (
@@ -14,6 +19,7 @@ from anewcommit import (
 
 myDir = os.path.dirname(os.path.abspath(__file__))
 test_data = os.path.join(myDir, "data")
+
 
 class TestProject(unittest.TestCase):
     def testRanges(self):
@@ -62,3 +68,6 @@ class TestProject(unittest.TestCase):
         self.assertEqual(ranges[3], [5])
         self.assertEqual(ranges[4], [6])
 
+
+if __name__ == "__main__":
+    unittest.main()
