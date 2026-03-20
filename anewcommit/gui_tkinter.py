@@ -18,7 +18,7 @@ __metaclass__ = type
 #   error-typeerror-argument-1-must-be-type-not-classobj-when>
 import os
 import sys
-import shlex
+# import shlex
 # from decimal import Decimal
 # import decimal
 # import locale as lc
@@ -47,11 +47,11 @@ if sys.version_info.major >= 3:
     # from tkinter import tix
 else:
     # Python 2
-    import tkMessageBox as messagebox
-    import tkFileDialog as filedialog
-    import tkSimpleDialog as simpledialog
-    import Tkinter as tk
-    import ttk
+    import tkMessageBox as messagebox  # type:ignore
+    import tkFileDialog as filedialog  # type:ignore
+    import tkSimpleDialog as simpledialog  # type:ignore
+    import Tkinter as tk  # type:ignore
+    import ttk  # type:ignore
     # import Tix as tix
 
 # import math
@@ -74,8 +74,8 @@ if os.path.isfile(tryInit):
     # Ensure the repo version is used if running from the repo.
     sys.path.insert(0, tryRepoDir)
 
-import anewcommit
-from anewcommit import (
+import anewcommit  # noqa: E402
+from anewcommit import (  # noqa: E402
     ANCProject,
     is_truthy,
     echo0,
@@ -90,7 +90,7 @@ from anewcommit import (
     parse_statement,
     statement_to_caption,
     open_file,
-    split_root,
+    # split_root,
     split_subs,
 )
 
@@ -99,7 +99,7 @@ echos.append(echo0)
 echos.append(echo1)
 echos.append(echo2)
 
-from anewcommit.scrollableframe import SFContainer
+from anewcommit.scrollableframe import SFContainer  # noqa: E402
 
 verbosity = get_verbosity()
 
@@ -233,15 +233,16 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
 
     This method does NOT handle defaults. The data comes directly from d.
 
-    Sequential arguments:
-    d -- This dictionary defines the set of widgets to use.
-    parent -- Set the frame that will contain the widget.
-    template -- Describe the fields as they should appear in the UI in a
-        platform-independent way. If the field isn't described, its type
-        will determine its UI (such as Entry box for str and Checkbutton
-        for bool).
-    warning_on_blank -- If a field in field_order isn't a key in d, add a
-        blank label and show a warning unless no_warning_on_blank is True.
+    Args:
+        d (dict): This dictionary defines the set of widgets to use.
+        parent (str): Set the frame that will contain the widget.
+        template (optional, dict) Describe the fields as they should
+            appear in the UI in a platform-independent way. If the field
+            isn't described, its type will determine its UI (such as
+            Entry box for str and Checkbutton for bool).
+        warning_on_blank (optional, bool): If a field in field_order
+            isn't a key in d, add a blank label and show a warning
+            unless no_warning_on_blank is True.
     '''
     if template is None:
         template = {}
@@ -475,13 +476,15 @@ class MainFrame(SFContainer):
     - global verbosity (usually 0)
     - See imports for more.
 
-    Private Attributes:
-    _project -- This is the currently loaded ANCProject instance.
-    _frame_of_luid -- _frame_of_luid[luid] is the row, in the form of a
-        frame, that represents the action (verb can be "get_version" or
-        a transition verb) uniquely identified by a luid.
-    _vars_of_luid -- _vars_of_luid[luid][key] is the widget of
-        the action for the action uniquely identified by luid.
+    Attributes:
+        _project (ANCProject): This is the currently loaded ANCProject
+            instance.
+        _frame_of_luid (dict): _frame_of_luid[luid] is the row, in the
+            form of a frame, that represents the action (verb can be
+            "get_version" or a transition verb) uniquely identified by a
+            luid.
+        _vars_of_luid (dict): _vars_of_luid[luid][key] is the widget of
+            the action for the action uniquely identified by luid.
     '''
     def __init__(self, parent, settings=None):
         all_settings = copy.deepcopy(ANCProject.default_settings)
@@ -594,7 +597,7 @@ class MainFrame(SFContainer):
         echo1()
         echo1("directory={}".format(directory))
         if len(directory) == 0:
-            # can be `()` (emtpy tuple).
+            # can be `()` (empty tuple).
             return
         elif directory.strip() == "":
             return
@@ -609,7 +612,7 @@ class MainFrame(SFContainer):
         echo1()
         echo1("directory={}".format(directory))
         if len(directory) == 0:
-            # can be `()` (emtpy tuple).
+            # can be `()` (empty tuple).
             return
         elif directory.strip() == "":
             return
@@ -867,7 +870,7 @@ class MainFrame(SFContainer):
             widget.pack(side=tk.LEFT)
             widget.bind(
                 "<Button>",
-                lambda e, l=luid, st=statement: self.on_click_sub(e, l, st),
+                lambda e, l=luid, st=statement: self.on_click_sub(e, l, st),  # noqa: E741
             )
             # ^ also done in _append_row
 
@@ -942,10 +945,11 @@ class MainFrame(SFContainer):
         structure of the source isn't checked for either of the
         "use" statements.
 
-        Keyword arguments:
-        skip_partial_count -- Skip this many partial matches (such as
-            matching primary/about to primary or vise versa). Normally this is
-            only set if the user presses "No" to use a partial match.
+        Args:
+            skip_partial_count (optional, int): Skip this many partial
+                matches (such as matching primary/about to primary or
+                vise versa). Normally this is only set if the user
+                presses "No" to use a partial match.
         '''
         if not statement.startswith("use "):
             messagebox.showerror(
@@ -1357,7 +1361,7 @@ class MainFrame(SFContainer):
         # ^ start may not be a version, so look for the related version below.
         if direction not in [-1, 1]:
             raise ValueError(
-                "compare must recieve -1 or 1 for direction but got {}"
+                "compare must receive -1 or 1 for direction but got {}"
                 "".format(direction)
             )
 
@@ -1406,16 +1410,15 @@ class MainFrame(SFContainer):
         The custom ".data" attribute of the row widget is set to
         "action".
 
-        Sequential arguments:
-        action -- If the action is a version
-            (action['verb'] is in anewcommit.VERSION_VERBS),
-            the action dict must contain the keys as
-            returned by the anewcommit.new_version function.
-            If the action is a version
-            (action['verb'] is in anewcommit.TRANSITION_VERBS),
-            the action dict must
-            contain the keys as returned by the anewcommit.new_*
-            functions other than new_version.
+        Args:
+            action (dict): If the action is a version
+                (action['verb'] is in anewcommit.VERSION_VERBS), the
+                action dict must contain the keys as returned by the
+                anewcommit.new_version function.
+                - If the action is a version
+                  (action['verb'] is in anewcommit.TRANSITION_VERBS),
+                  the action dict must contain the keys as returned by
+                  the anewcommit.new_* functions other than new_version.
         '''
         # version action keys: path, mode, verb, commit
         # - where verb is in anewcommit.VERSION_VERBS
@@ -1455,7 +1458,7 @@ class MainFrame(SFContainer):
         # self.style.configure(style_key, background='gray')
         # frame = ttk.Frame(self.scrollable_frame, style=style_key)
 
-        frame.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))
+        frame.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))  # noqa: E741
         if self.bg_color is None:
             self.bg_color = frame.cget("background")  # tk
             # self.bg_color = self.style.lookup("MainFrame.TFrame",
@@ -1543,7 +1546,7 @@ class MainFrame(SFContainer):
         echo2("  - dict_to_widgets got {} widgets."
               "".format(len(results['widgets'])))
         for name, widget in results['widgets'].items():
-            widget.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))
+            widget.bind("<Button-1>", lambda e, l=luid: self.on_click_row(l))  # noqa: E741
             widget.pack(side=tk.LEFT)
             var = results['vs'][name]
             self._vars_of_luid[luid][name] = var
@@ -1557,7 +1560,7 @@ class MainFrame(SFContainer):
                 if cmd.get('command') is not None:
                     widget.bind(
                         "<Button>",
-                        lambda e, l=luid, st=_st: self.on_click_sub(e, l, st),
+                        lambda e, l=luid, st=_st: self.on_click_sub(e, l, st),  # noqa: E741
                     )
                     # ^ also done in mark_if_has_folder
                 else:
@@ -1648,11 +1651,11 @@ class MainFrame(SFContainer):
         '''
         Reload a subset of GUI rows from the underlying data.
 
-        Sequential arguments:
-        min_index -- Start reloading at this index in the GUI which corresponds
-            to an index in self._project.
-        do_s -- Provide a string describing what is being done (such as "undo"
-            or "redo") for debugging purposes.
+        Args:
+            min_index (int): Start reloading at this index in the GUI
+                which corresponds to an index in self._project.
+            do_s (str): Provide a string describing what is being done
+                (such as "undo" or "redo") for debugging purposes.
         '''
         err = None
         if min_index < 0:
@@ -1718,9 +1721,9 @@ class MainFrame(SFContainer):
         same index in the self._project._actions list so that both
         lists match.
 
-        Sequential arguments:
-        index -- Insert the item here in the list view.
-        action -- Insert this action dictionary.
+        Args:
+            index (int): Insert the item here in the list view.
+            action (dict): Insert this action dictionary.
         '''
         more_items = []
         count = 0
@@ -1766,7 +1769,7 @@ class MainFrame(SFContainer):
             self.move_down_where(luid)
         else:
             raise ValueError(
-                "move_1 must recieve -1 or 1 for direction but got {}"
+                "move_1 must receive -1 or 1 for direction but got {}"
                 "".format(direction)
             )
 
@@ -1945,8 +1948,8 @@ class MainFrame(SFContainer):
 
     def dump(self, level):
         '''
-        Sequential arguments:
-        level -- Set what level of verbosity this dump affects.
+        Args:
+            level (int): Set what level of verbosity this dump affects.
         '''
         global _GUI_DUMP
         global _BACKEND_DUMP
@@ -2052,8 +2055,8 @@ def main():
     versions_path = None
     bool_names = ['--verbose']
     settings = {}
-    for argi in range(1, len(sys.argv)):
-        arg = sys.argv[argi]
+    for arg_i in range(1, len(sys.argv)):
+        arg = sys.argv[arg_i]
         if arg.startswith("--"):
             option_name = arg[2:]
             if arg == "--verbose":

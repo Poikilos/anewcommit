@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 from __future__ import print_function
 
+from collections import OrderedDict
+import shutil
 import sys
 import os
 import platform
@@ -436,29 +438,48 @@ def substep_to_str(ss):
 
 
 class ANCProject:
-    '''
-    Manage a list of version directories.
+    '''Manage a list of version directories.
 
-    Public Properties:
-    project_dir -- The metadata for the various version directories will
-        be stored here.
-    path -- This is the explicit path to a project file, usually
-        "anewcommit.json" in project_dir.
-    _actions -- This is a list of _actions to take, such as pre-processing
-        or post-processing a version.
+    Attributes:
+        project_dir (str): The metadata for the various version
+            directories will be stored here.
+        path (str): This is the explicit path to a project file, usually
+            "anewcommit.json" in project_dir.
+        _actions (list): This is a list of _actions to take, such as
+            pre-processing or post-processing a version.
     '''
     default_settings = {}
 
     def __init__(self):
         self.path = None
         self.project_dir = None
-        self._actions = []
         self.remove_redo = False  # Remove redo after undo.
         self.clear_undo()
-        self.data = {
-            'actions': self._actions,
-        }
+        self.data = None
+        self._actions = None
+        self._complete_settings()
         self.auto_save = True
+
+    def _complete_settings(self):
+        if self.data is None:
+            self.data = OrderedDict()
+        if 'actions' not in self.data:
+            self._actions = []
+            self.data['actions'] = self._actions
+        else:
+            assert isinstance(self.data['actions'], list)
+            self._actions = self.data['actions']
+
+        if 'redact' not in self.data:
+            self.data['redact'] = OrderedDict()
+        else:
+            assert isinstance(self.data['redact'], OrderedDict)
+
+        for list_name in ('exclude', 'mysql', 'select_as_root'):
+            if list_name not in self.data['redact']:
+                self.data['redact'][list_name] = []
+            else:
+                assert isinstance(self.data['redact'][list_name], list)
 
     def clear_undo(self):
         self._undo_steps = []
@@ -507,12 +528,12 @@ class ANCProject:
 
     def undo(self, redo=False):
         '''
-        A substep
-        is a command in the form of a list, and a step is a list of
-        lists (commands).
+        A substep is a command in the form of a list, and a step is a
+        list of lists (commands).
 
         Returns:
-        a list of luids that were affected.
+            tuple (list, str): A tuple of list of luids that were
+                affected, and error (or None) as 2nd element.
         '''
         results = {}
         results['added'] = []
@@ -571,11 +592,54 @@ class ANCProject:
         if do_save:
             self.save()
 
+    def add_mysql_redaction(self, alias, host, user, password, db):
+        # type: (str, str, str, str, str) -> None
+        """Add multiline-capable redaction for every mysql_ & mysqli_
+        separate from the JSON.
+        - mysql*_select_db may be used later (db not on same line)
+
+        Args:
+            alias (str): Name for the PHP associative array storing
+                the parameters for connecting to this database+user
+                pairing (This associative array will be under the
+                "redact" associative array).
+        """
+        assert alias
+        assert not alias[0].isnumeric()  # PHP variable can't start with #
+        for c in alias:
+            if (not c.isalnum()) and (c not in ('_',)):
+                raise AssertionError(
+                    "Alias (PHP variable name) may only contain letters,"
+                    " numbers, or underscores, but got {} in {}."
+                    .format(repr(c), repr(alias)))
+        assert host
+        assert host == host.strip()
+        assert user
+        assert user == user.strip()
+        assert password  # no strip assertion: may have space anywhere
+        assert db
+        assert db == db.strip()
+        assert self._find_redact_mysql(alias) < 0  # prevent dup alias
+        assert alias not in self.data['redact']['mysql']
+        new = OrderedDict()
+        new['alias'] = alias
+        new['host'] = host
+        new['user'] = user
+        new['db'] = db
+        new['password'] = password
+        self.data['redact']['mysql'].append(new)
+
+    def _find_redact_mysql(self, alias):
+        for i, item in enumerate(self.data['redact']['mysql']):
+            if item['alias'] == alias:
+                return i
+        return -1
+
     def add_transition(self, verb, do_save=True):
         '''
-        Sequential arguments:
-        verb -- Set operation string from the OPS table to decide what
-            to do between versions.
+        Args:
+            verb (str): Set operation string from the OPS table to
+                decide what to do between versions.
         '''
         action = None
         if verb == "pre_process":
@@ -595,13 +659,13 @@ class ANCProject:
     def add_version(self, path, mode='delete_then_add', do_save=True,
                     name=None):
         '''
-        Sequential arguments:
-        path -- This is a path to a version.
-
-        Keyword arguments:
-        mode -- Specify how to add the data to the repo.
-        do_save -- Save immediately.
-        name -- Set the name (See new_version documentation).
+        Args:
+            path (str): This is a path to a version.
+            mode (optional, str): Specify how to add the data to the
+                repo.
+            do_save (optional, bool): Save immediately.
+            name (optional, str): Set the name (See new_version
+                documentation).
         '''
         action = new_version(path, mode=mode, name=name)
         # ^ new_version raises ValueError if the mode is invalid.
@@ -609,11 +673,11 @@ class ANCProject:
         return action
 
     def insert_statement_where(self, luid, statement, direction=-1):
-        '''
-        Convert a statement to an action and insert it at the luid.
+        '''Convert a statement to an action and insert it at the luid.
 
-        Keyword arguments:
-        direction -- if -1, to pre_process, if 1, post_process.
+        Args:
+            direction (optional, int): if -1, to pre_process, if 1,
+                post_process.
         '''
         action = _new_process()
         if direction == -1:
@@ -632,12 +696,12 @@ class ANCProject:
 
     def append_statement_where(self, luid, statement, force=False):
         '''
-        Keyword arguments:
-        force -- Add it even it is already in the list
-            (not yet implemented).
+        Args:
+            force (optional, bool): Add it even it is already in the
+                list (not yet implemented).
 
         Returns:
-        True if added, otherwise false.
+            bool: True if added, otherwise false.
         '''
         parse_statement(statement)  # call this to validate/raise exception
         i = self._find_where('luid', luid)
@@ -652,7 +716,7 @@ class ANCProject:
     def remove_statement_where(self, luid, statement, force=False):
         '''
         Returns:
-        True if removed, otherwise false.
+            bool: True if removed, otherwise False.
         '''
         args = split_statement(statement)
         if len(args) < 2:
@@ -774,7 +838,7 @@ class ANCProject:
     def load(self, path):
         with open(path, 'r') as ins:
             try:
-                self.data = json.load(ins)
+                self.data = json.load(ins, object_pairs_hook=OrderedDict)
                 self.path = path
                 self._actions = self.data['actions']
                 for action in self._actions:
@@ -793,6 +857,7 @@ class ANCProject:
                 self.project_dir = self.data.get('project_dir')
                 if self.project_dir is None:
                     self.project_dir = os.path.dirname(path)
+                self._complete_settings()
                 return True, msg
             except ValueError as ex:  # Python 2 JSON decode error
                 return False, str(ex)
@@ -807,9 +872,13 @@ class ANCProject:
             if self.project_dir is None:
                 raise RuntimeError("The project dir or path must be set.")
             self.path = os.path.join(self.project_dir, "anewcommit.json")
-        with open(self.path, 'w') as outs:
+        tmp = self.path + ".tmp"
+        with open(tmp, 'w') as outs:
             json.dump(self.data, outs, indent=2, sort_keys=True)
-        echo1('* wrote "{}"'.format(self.path))
+        if os.path.isfile(self.path):
+            os.remove(self.path)
+        shutil.move(tmp, self.path)
+        echo1('* wrote {}'.format(repr(self.path)))
         return True
 
     def get_project_dir(self):
@@ -834,20 +903,18 @@ class ANCProject:
 
     def insert(self, index, action, add_undo_step=True):
         '''
-        Sequential arguments:
-        index -- This is an index in self._actions (usually NOT the same as
-            self._actions[index].luid).
-        action -- Insert this action dictionary.
-
-        Keyword arguments:
-        add_undo_step -- This should only be False if an undo/redo is doing the
-            step, or there is some particular internal reason not to record a
-            step.
+        Args:
+            index (int): This is an index in self._actions (usually NOT
+                the same as self._actions[index].luid).
+            action (str): Insert this action dictionary.
+            add_undo_step (optional, bool): This should only be False if
+                an undo/redo is doing the step, or there is some
+                particular internal reason not to record a step.
 
         Returns:
-        an undo substep which can be appended to a step. A substep
-        is a command in the form of a list, and a step is a list of
-        lists (commands).
+            list: an undo substep which can be appended to a step. A
+                substep is a command in the form of a list, and a step
+                is a list of lists (commands).
         '''
         if index > len(self._actions):
             raise IndexError("The index {} is beyond len {}"
@@ -868,10 +935,10 @@ class ANCProject:
 
     def swap(self, index, other_index, add_undo_step=True):
         '''
-        Keyword arguments:
-        add_undo_step -- This should only be False if an undo/redo is doing the
-            step, or there is some particular internal reason not to record a
-            step.
+        Args:
+            add_undo_step (optional, bool) This should only be False if an undo/redo is doing the
+                step, or there is some particular internal reason not to record a
+                step.
         '''
         tmp_action = self._actions[index]
         self._actions[index] = self._actions[other_index]
@@ -889,10 +956,10 @@ class ANCProject:
 
     def swap_where_luid(self, luid, other_luid, add_undo_step=True):
         '''
-        Keyword arguments:
-        add_undo_step -- This should only be False if an undo/redo is doing the
-            step, or there is some particular internal reason not to record a
-            step.
+        Args:
+            add_undo_step (optional, bool): This should only be False if
+                an undo/redo is doing the step, or there is some
+                particular internal reason not to record a step.
         '''
         index = self._find_where('luid', luid)
         other_index = self._find_where('luid', other_luid)
@@ -916,13 +983,12 @@ class ANCProject:
 
     def insert_where(self, name, value, action, direction=-1):
         '''
-        Sequential arguments:
-        luid -- Insert before this luid.
-        action -- Insert this action dictionary.
-
-        Keyword arguments:
-        direction -- -1 to insert before the match, 1 to insert afterward
-            (or after all related post-processing steps if any).
+        Args:
+            luid (str): Insert before this luid.
+            action (str): Insert this action dictionary.
+            direction (optional, int): -1 to insert before the match, 1
+                to insert afterward (or after all related
+                post-processing steps if any).
         '''
         newI = self._find_where(name, value)
         if direction == -1:
@@ -934,7 +1000,7 @@ class ANCProject:
             raise ValueError("The direction must be -1 or 1.")
 
         if newI < 0:
-            raise ValueError("There is no '{}' {}".format(name, value))
+            raise ValueError("There is no {} {}".format(repr(name), value))
         return self.insert(newI, action)
 
     def insert_where_luid(self, luid, action, direction=-1):
@@ -943,8 +1009,8 @@ class ANCProject:
 
     def remove_where(self, name, value):
         '''
-        Sequential arguments:
-        luid -- Insert before this luid.
+        Args:
+            luid (str): Insert before this luid.
         '''
         newI = self._find_where(name, value)
         if newI < 0:
@@ -971,10 +1037,10 @@ class ANCProject:
                 "The verb is {} so it can't change."
                 "The action parameters aren't same as for other"
                 " TRANSITION_VERBS."
-                "".format(current_verb)
+                .format(repr(current_verb))
             )
         echo0("NotYetImplemented: set_verb('{}', {})"
-              "".format(luid, verb))
+              .format(luid, verb))
 
     def to_dict(self):
         return {
@@ -995,8 +1061,9 @@ class ANCProject:
         For further documentation see gitignore_to_rsync_pair in
         pycodetool.ggrep.
 
-        Keyword arguments:
-        ignore_root -- Behave as though the .gitignore file is in this folder.
+        Args:
+            ignore_root (optional, str) Behave as though the .gitignore
+                file is in this folder.
         '''
         gitignore_path = self.get_gitignore_path()
         if gitignore_path is None:
@@ -1054,8 +1121,9 @@ class ANCProject:
                     pass
                 statements = action.get('statements')
                 if statements is None:
-                    echo0('  - {} has no statements,'
-                          ' so it will not be used.')
+                    echo0("  - {} has no statements,"
+                          " so it will not be used."
+                          .format(action))
                     continue
                 progress_subpart_increment = 1.0 / float(len(statements))
                 progress_subpart = -progress_subpart_increment
@@ -1110,7 +1178,8 @@ class ANCProject:
                 if action.get('mode') is not None:
                     raise ValueError(
                         'Mode is {} but only the following verbs should have'
-                        ' a mode: {}'.format(action.get('mode'), VERSION_VERBS)
+                        ' a mode: {}'.format(repr(action.get('mode')),
+                                             VERSION_VERBS)
                     )
                 # TODO: do non-version verbs
         return tmp_dir

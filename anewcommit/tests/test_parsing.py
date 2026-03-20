@@ -23,26 +23,26 @@ class TestParsing(unittest.TestCase):
     def test_split_statement(self):
         self.assertEqual(
             split_statement('use "Primary Site" as main'),
-            ['use','Primary Site','as','main']
+            ["use", 'Primary Site', "as", "main"]
         )
         self.assertEqual(
             split_statement('use primary_site as main'),
-            ['use','primary_site','as','main']
+            ["use", 'primary_site', "as", "main"]
         )
     def test_parse_statement(self):
         subCmd = parse_statement('sub "Primary Site"')
-        self.assertEqual(subCmd['command'], 'sub')
-        self.assertEqual(subCmd['source'], 'Primary Site')
+        self.assertEqual(subCmd['command'], "sub")
+        self.assertEqual(subCmd['source'], "Primary Site")
         self.assertTrue(subCmd.get('destination') is None)
 
         useCmd = parse_statement('use "Primary Site" as main')
-        self.assertEqual(useCmd['command'], 'use')
-        self.assertEqual(useCmd['source'], 'Primary Site')
-        self.assertEqual(useCmd['destination'], 'main')
+        self.assertEqual(useCmd['command'], "use")
+        self.assertEqual(useCmd['source'], "Primary Site")
+        self.assertEqual(useCmd['destination'], "main")
 
         exceptionIsGood = False
         try:
-            parse_statement('foo main')
+            parse_statement("foo main")
         except ValueError as ex:
             if ("foo" in str(ex)) and ("command" in str(ex)):
                 exceptionIsGood = True

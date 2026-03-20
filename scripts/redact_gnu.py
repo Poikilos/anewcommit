@@ -96,11 +96,11 @@ def run_or_showerror(command_parts, show_stdout=True, ignore_codes=[]):
     the sunflower package isn't installed but the script is
     still in ~/.local/bin such as if Python was upgraded.
 
-    Keyword arguments:
-    show_stdout -- If True, write stdout of process to stdout.
-        If False, return the stdout as lines.
-    ignore_codes -- Ignore these error codes. For example, ignore 1 if
-        grep, since error code 1 means no matches!
+    Args:
+        show_stdout (optional, bool): If True, write stdout of process
+            to stdout. If False, return the stdout as lines.
+        ignore_codes (list): Ignore these error codes. For example,
+            ignore 1 if grep, since error code 1 means no matches!
     '''
     results = None
     command = command_parts[0]
@@ -171,12 +171,13 @@ def sed(old, new, path, delimiter=None, once=False, only_if_new_missing=None):
     '''
     Replace old with new inside of the file designated by path.
 
-    Keyword arguments:
-    delimiter -- The sed command delimeter. This must be a character
-        that is neither in old nor new.
-    once -- Only change the first instance of old.
-    only_if_new_missing -- Only do anything if new is *not in the file*.
-        If None, reverts to the value of the "once" argument.
+    Args:
+        delimiter (optional, str): The sed command delimiter. This must
+            be a character that is neither in old nor new.
+        once (optional, bool): Only change the first instance of old.
+        only_if_new_missing (optional, bool): Only do anything if new is
+            *not in the file*. If None, reverts to the value of the
+            "once" argument.
     '''
     if only_if_new_missing is None:
         only_if_new_missing = once
@@ -330,21 +331,24 @@ ARG_NAMES = ['config_section', 'dbhost', 'dbuser', 'dbpass', 'dbname']
 def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
                             root=os.getcwd(), config_var="redact"):
     '''
-    Replace private substrigs in mysqli, EyeMySQLAdap, and SQLC (Pear)
+    Replace private substrings in mysqli, EyeMySQLAdap, and SQLC (Pear)
     lines.
 
     NOTICE: The spacing may matter here, so check the final result for
     additional instances of private strings!
 
-    Keyword arguments:
-    root -- (default: current working directory) The directory to
-        redact.
-    config_var -- The variable name to use as the config, such as
-        "redact" (default) if you are adding
-        `$redact = include("../redact.php");`
-        to your PHP file. See redact documentation for more info.
-        Using the variable "config" is *not* recommended since that is
-        used by other web applications and frameworks.
+    NOTE: DEPRECATED: Replaced with smart mysql statement detection to
+    be thorough.
+
+    Args:
+        root (str): The directory to redact. Defaults to current working
+            directory.
+        config_var (str): The variable name to use as the config, such
+            as "redact" (default) if you are adding `$redact =
+            include("../redact.php");` to your PHP file. See redact
+            documentation for more info. Using the variable "config" is
+            *not* recommended since that is used by other web
+            applications and frameworks.
     '''
     sec = config_section
     conf = config_var

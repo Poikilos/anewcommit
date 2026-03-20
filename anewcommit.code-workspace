@@ -4,5 +4,27 @@
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {
+		"cSpell.words": [
+			"anewcommit",
+			"classobj",
+			"dateutil",
+			"indicatoron",
+			"initialdir",
+			"initialvalue",
+			"LUID",
+			"luids",
+			"maxchars",
+			"Murach",
+			"offvalue",
+			"onvalue",
+			"padx",
+			"pady",
+			"scrollableframe",
+			"substep",
+			"tearoff",
+			"textvariable",
+			"winnative"
+		]
+	}
 }
