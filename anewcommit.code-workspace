@@ -9,6 +9,9 @@
 			"anewcommit",
 			"classobj",
 			"dateutil",
+			"dbhost",
+			"dbpass",
+			"dbuser",
 			"Gustafson",
 			"indicatoron",
 			"initialdir",
@@ -17,16 +20,19 @@
 			"luids",
 			"maxchars",
 			"Murach",
+			"mysqli",
 			"offvalue",
 			"onvalue",
 			"padx",
 			"pady",
 			"Poikilos",
 			"scrollableframe",
+			"SQLC",
 			"substep",
 			"tearoff",
 			"textvariable",
-			"winnative"
+			"winnative",
+			"xajax"
 		]
 	}
 }

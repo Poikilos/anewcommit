@@ -45,6 +45,12 @@ if platform.system() == "Windows":
     profile = os.environ.get('USERPROFILE')
 
 
+def formatted_ex(ex):
+    if str(ex):
+        return "{}: {}".format(type(ex).__name__, ex)
+    return "{}".format(type(ex).__name__)
+
+
 def split_subs(path):
     '''
     Convert "a/b/c" to tuple ("a", "b", "c")
@@ -619,8 +625,9 @@ class ANCProject:
         assert password  # no strip assertion: may have space anywhere
         assert db
         assert db == db.strip()
-        assert self._find_redact_mysql(alias) < 0  # prevent dup alias
-        assert alias not in self.data['redact']['mysql']
+        if self._find_redact_mysql(alias) >= 0:
+            raise KeyError("Alias {} is already used"
+                           .format(repr(alias)))  # prevent dup alias
         new = OrderedDict()
         new['alias'] = alias
         new['host'] = host
