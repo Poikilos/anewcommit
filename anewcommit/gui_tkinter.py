@@ -77,6 +77,7 @@ if os.path.isfile(tryInit):
 import anewcommit  # noqa: E402
 from anewcommit import (  # noqa: E402
     ANCProject,
+    formatted_ex,
     is_truthy,
     echo0,
     echo1,
@@ -959,7 +960,8 @@ class MainFrame(SFContainer):
             return
         yes = messagebox.askyesno(
             "anewcommit",
-            "Do you want to merge actions before comparing?"
+            "Do you want to merge actions before comparing?",
+            parent=self,
         )
         compare_mode = "source"
         if yes is True:
@@ -978,7 +980,8 @@ class MainFrame(SFContainer):
         to_i = self._find('luid', luid)
 
         to_action = self._project._actions[to_i]
-        cmp_paths = [None, None]
+        cmp_paths = [None, None]  # versions (*both* are 'source')
+        #  ('destination' is which redacted repo/subfolder to populate)
         cmp_paths[I_TO] = to_action['path']
         to_source = cmp_cmds[I_TO].get('source')
         # ^ RELATIVE, so added to 'path' later
@@ -1291,8 +1294,15 @@ class MainFrame(SFContainer):
         still in ~/.local/bin such as if Python was upgraded.
         '''
         command = command_parts[0]
-        proc = subprocess.Popen(command_parts, stderr=subprocess.PIPE,
-                                stdout=subprocess.PIPE)
+        try:
+            proc = subprocess.Popen(command_parts, stderr=subprocess.PIPE,
+                                    stdout=subprocess.PIPE)
+        except FileNotFoundError as ex:
+            messagebox.showerror(
+                "{} error".format(command),
+                formatted_ex(ex),
+            )
+            return
         echo0("done process: {}".format(proc))
         # messagebox.showerror("result: {}".format(result))
         out, err = proc.communicate()
@@ -1329,6 +1339,9 @@ class MainFrame(SFContainer):
         from_action = self._project._actions[from_i]
         action = self._project._actions[click_i]
         from_path = from_action['path']
+        print(
+            f"click_i={click_i} from_i={from_i} from_range={from_range}"
+            f"from_action={from_action} action={action} from_path={from_path}")
         if from_i == click_i:
             to_path = from_path
             if not os.path.isdir(to_path):
@@ -1386,9 +1399,15 @@ class MainFrame(SFContainer):
         to_i, to_range = self._project.get_affected(to_near_i)
         from_path = self._project._actions[from_i]['path']
         to_path = self._project._actions[to_i]['path']
-        echo1('compare: {} "{}" "{}"'
-              ''.format(command, from_path, to_path))
-        self.compare_paths(from_path, to_path, command=command)
+        if direction == -1:
+            # Switch them so earlier one is on right side of comparison
+            echo1('compare: {} "{}" "{}"'
+                ''.format(command, repr(to_path), repr(from_path)))
+            self.compare_paths(repr(to_path), repr(from_path), command=command)
+        else:
+            echo1('compare: {} "{}" "{}"'
+                ''.format(command, from_path, to_path))
+            self.compare_paths(from_path, to_path, command=command)
 
     def compare_paths(self, from_path, to_path, command="meld"):
         if command == "sunflower":
