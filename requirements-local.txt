@@ -1,0 +1,4 @@
+-e ../pycodetool
+-e ../hierosoft
+python-dateutil
+six

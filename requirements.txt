@@ -1,3 +1,4 @@
 pycodetool @ git+https://github.com/Poikilos/pycodetool
 hierosoft @ git+https://github.com/Hierosoft/hierosoft
 python-dateutil
+six
