@@ -76,6 +76,7 @@ return (object) array(
        automatically inserted (or whatever is correct based on your
        redact.php location).
 """
+from collections import OrderedDict
 import os
 import sys
 import subprocess
@@ -331,14 +332,14 @@ ARG_NAMES = ['config_section', 'dbhost', 'dbuser', 'dbpass', 'dbname']
 def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
                             root=os.getcwd(), config_var="redact"):
     '''
+    NOTE: DEPRECATED. Implement smart mysql statement detection to
+    be thorough. See generate_cache.
+
     Replace private substrings in mysqli, EyeMySQLAdap, and SQLC (Pear)
     lines.
 
     NOTICE: The spacing may matter here, so check the final result for
     additional instances of private strings!
-
-    NOTE: DEPRECATED: Replaced with smart mysql statement detection to
-    be thorough.
 
     Args:
         root (str): The directory to redact. Defaults to current working
@@ -448,9 +449,9 @@ def redact_mysql_statements(config_section, dbhost, dbuser, dbpass, dbname,
                 if not replace_if_old:
                     sed(old, new, path)
                 # else was already done if old was found
-    old = '<?php';
+    old = '<?php'
     new = ('<?php\\n${conf} = include("../{conf}.php");\\n'
-           ''.format(conf=config_var));
+           .format(conf=config_var))
     # ^ The extra newlines are there because in some cases there is no
     #   newline after "<?php" and the whole thing could be one line.
     changed_paths = grep_paths('${}->'.format(config_var),real_root)
@@ -519,7 +520,7 @@ def main():
         return 1
     try:
         with open(meta_path, 'r') as ins:
-            meta = json.load(ins)
+            meta = json.load(ins, object_pairs_hook=OrderedDict)
     except json.decoder.JSONDecodeError as ex:
         private_usage(meta_path)
         opener = "Expecting property name enclosed in double quotes:"

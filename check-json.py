@@ -6,6 +6,7 @@ Parse any JSON Exceptions to provide JSON linting functionality.
 # name=$1
 # echo "* checking '$name'..."
 # pycodestyle-3 $name
+from collections import OrderedDict
 import json
 import sys
 # import re
@@ -53,9 +54,9 @@ def get_between(haystack, starter, ender):
 def lint_json(path, quiet_if_valid=False):
     try:
         with open(path) as json_file:
-            data = json.load(json_file)
+            data = json.load(json_file, object_pairs_hook=OrderedDict)
             if not quiet_if_valid:
-                print("\"{}\" is valid JSON.".format(path))
+                print("{} is valid JSON.".format(repr(path)))
     except json.decoder.JSONDecodeError as e:
         # str(e) is something like:
         # Expecting ',' delimiter: line 9 column 5 (char 207)
