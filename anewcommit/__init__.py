@@ -2,6 +2,8 @@
 from __future__ import print_function
 
 from collections import OrderedDict
+import copy
+import shlex
 import shutil
 import sys
 import os
@@ -12,15 +14,16 @@ from datetime import datetime, timezone
 import pathlib
 from io import StringIO
 import csv
+import warnings
 
-from .find_pycodetool import pycodetool
+# from .find_pycodetool import pycodetool
 
 from pycodetool.parsing import (
     find_unquoted_not_commented,
     explode_unquoted,
 )
 
-from .find_hierosoft import hierosoft
+# from .find_hierosoft import hierosoft
 
 from hierosoft.ggrep import (
     gitignore_to_rsync_pair,
@@ -39,16 +42,128 @@ from hierosoft import (
     is_truthy,
 )
 
+from hierosoft.logging2 import getLogger
+
+logger = getLogger(__name__)
+
 
 profile = os.environ.get('HOME')
 if platform.system() == "Windows":
     profile = os.environ.get('USERPROFILE')
+
+DB_LINE_FORMATS = [
+    {
+        'starter': 'EyeMySQLAdap(',
+        'ender': ')',
+        'args': ["dbhost", "dbuser", "dbpass", "dbname"]
+    },
+    {
+        'starter': "define(",
+        'ender': ")",
+        'args': ["'SQLC'", "formatted_string"],
+        # ^ Only process define if using this literal (first arg)
+        'string_format': "mysql://{dbhost}:{dbuser}@{dbpass}/{dbname}",
+        # NOTE: ^ the arg is quoted!
+    },
+    {
+        'starter': "define(",
+        'ender': ")",
+        'args': ['"SQLC"', "formatted_string"],
+        # ^ Only process define if using this literal (first arg)
+        'string_format': "mysql://{dbhost}:{dbuser}@{dbpass}/{dbname}",
+        # NOTE: ^ the arg is quoted!
+    },
+    {
+        'starter': "mysql_select_db(",
+        'ender': ")",
+        'args': ['dbname'],
+    },
+    {
+        'starter': "mysql_select_db(",
+        'ender': ")",
+        'args': ["dbname", "$conn"],
+        # $conn is the variable holding the return of
+        # mysql_connect
+        # - "If the link identifier is not specified, the last
+        #   link opened by mysql_connect() is assumed" (See
+        #   single-arg pattern above)
+        #
+    },
+    {
+        'starter': "mysqli_select_db(",
+        'ender': ")",
+        'args': ["$conn", "dbname"],
+        # conn is required in the case of mysqli
+        # $conn is the variable holding the return of mysql_connect
+        # NOTE: mysql_connect also has optional 4th arg for
+        #   default dbname, so mysqli_select_db may not be
+        #   present.
+    },
+    {
+        'starter': "mysqli_connect(",
+        'ender': ")",
+        'args': ["dbhost", "dbuser", "dbpass"],
+    },
+    {
+        'starter': "mysql_connect(",
+        'ender': ")",
+        'args': ["dbhost", "dbuser", "dbpass"],
+    },
+]
+
+REDACTION_REQUIRES = """
+if (file_exists("../redact.php")) {
+    $redact = include("../redact.php");
+} elseif (file_exists("../../redact.php")) {
+    $redact = include("../../redact.php");
+} elseif (file_exists("../../redact.php")) {
+    $redact = include("../../../redact.php");
+} else {
+    $redact = include("../../../../redact.php");
+}
+"""
+
+
+def emit_cast(value):
+    if value is None:
+        return "None"
+    elif value is False:
+        return "False"
+    elif value is True:
+        return "True"
+    return "{}({})".format(type(value).__name__, repr(value))
 
 
 def formatted_ex(ex):
     if str(ex):
         return "{}: {}".format(type(ex).__name__, ex)
     return "{}".format(type(ex).__name__)
+
+
+def partial_format(fmt, d):
+    assert isinstance(fmt, str)
+    assert isinstance(d, dict)
+    partialD = {}
+    for key, value in d.items():
+        if ("{%s}" % key) in fmt:
+            partialD[key] = value
+    return fmt.format(**partialD)
+
+
+def get_format_keys(fmt):
+    keys = []
+    assert isinstance(fmt, str)
+    i = -1
+    while i + 1 < len(fmt):
+        i += 1
+        if fmt[i] == "{":
+            end = fmt.find("}", i)
+            if end < 0:
+                raise ValueError("Start '{' without '}' in %s"
+                                 % (repr(fmt)))
+            keys.append(fmt[i+1:end])
+            i = end
+    return keys
 
 
 def split_subs(path):
@@ -178,6 +293,7 @@ def split_statement(statement):
     '''
     Split a string of multiple arguments (respecting quotes) into a list.
     '''
+    isinstance(statement, str)
     ins = StringIO(statement)
     reader = csv.reader(ins, delimiter=" ")
     parts = None
@@ -196,15 +312,17 @@ def split_statement(statement):
 
 def parse_statement(statement):
     result = {}
+    assert isinstance(statement, str)
     parts = split_statement(statement)
     if len(parts) > 0:
-        result['command'] = parts[0]
+        result['keyword'] = parts[0]
     else:
-        raise ValueError('The command "{}" is blank'.format(statement))
+        raise ValueError('The keyword "{}" is blank'.format(statement))
     if parts[0] == "sub":
+        warnings.warn("'sub' keyword is deprecated")
         if len(parts) != 2:
             raise ValueError(
-                "The {} command has {} argument(s) but should have 1:"
+                "The {} keyword has {} argument(s) but should have 1:"
                 " (source)"
                 "".format(statement, len(parts)-1)
             )
@@ -220,30 +338,66 @@ def parse_statement(statement):
             result['destination'] = parts[2]
         else:
             raise ValueError(
-                'The {} command has {} argument(s) but should have 2 or 3:'
+                'The {} keyword has {} argument(s) but should have 2 or 3:'
                 ' (source, "as", destination)'
                 ' or ("as", destination)'
                 ''.format(statement, len(parts)-1)
             )
+    elif parts[0] == "remove_blank_lines":
+        if len(parts) > 0:
+            raise ValueError("Unexpected argument(s) after keyword: {}"
+                             .format(parts))
     else:
         raise ValueError(
-            'The command "{}" is unknown in statement "{}"'
-            ''.format(parts[0], statement)
+            'The keyword {} is unknown in statement {}'
+            .format(repr(parts[0]), repr(statement))
         )
     return result
 
 
-def statement_to_caption(command_dict):
-    if not isinstance(command_dict, dict):
-        raise ValueError(
-            "You must provide the command such as from parse_statement()"
-        )
+def d_quote(value):
+    if value is None:
+        return None
+    elif value is False:
+        return False
+    elif value is True:
+        return False
+    elif isinstance(value, (bytes, bytearray)):
+        return hex(value)
+    elif not isinstance(value, str):
+        return str(value)
+    return '"{}"'.format(value.replace('"', '\\"'))
 
-    text = command_dict.get('destination')
+
+def statement_to_str(statement_d):
+    assert isinstance(statement_d, (dict, OrderedDict))
+    parts = [statement_d['keyword']]
+    if 'source' in statement_d:
+        assert statement_d['source'].strip()
+        parts.append(d_quote(statement_d['source']))
+    if 'destination' in statement_d:
+        parts.append("as")
+        assert statement_d['destination'].strip()
+        parts.append(d_quote(statement_d['destination']))
+    if 'preprocess' in statement_d:
+        parts.append("preprocess")
+        parts += statement_d['preprocess']
+    return " ".join(parts)
+
+
+def statement_to_caption(statement_d):
+    if not isinstance(statement_d, (dict, OrderedDict)):
+        raise ValueError(
+            "You must provide the statement dict"
+            " such as from anewcommit.json or"
+            " parse_statement(). Got {}"
+            .format(emit_cast(statement_d))
+        )
+    text = statement_d.get('destination')
     if text is None:
-        text = command_dict.get('source')
+        text = statement_d.get('source')
     if text is None:
-        text = command_dict.get('command')
+        text = statement_d.get('keyword')
     return text
 
 
@@ -270,6 +424,221 @@ def gen_luid():
     new_luid = str(last_luid_i)
     used_luids.add(new_luid)
     return new_luid
+
+
+
+# Source - https://stackoverflow.com/a/7392391
+# Posted by jfs, modified by community. See post 'Timeline' for change history
+# Retrieved 2026-07-17, License - CC BY-SA 3.0
+TEXT_CHARS = bytearray({7,8,9,10,12,13,27} | set(range(0x20, 0x100)) - {0x7f})
+def is_binary_string(bytes):
+    return bool(bytes.translate(None, TEXT_CHARS))
+
+
+def is_binary_file(path, size=1024):
+    with open(path, "rb") as stream:
+        return is_binary_string(stream.read(size))
+
+
+TEXT_DOT_EXTS = [".txt", ".md", ".rst", ".php", ".c", ".h", ".cxx", ".cpp",
+                 ".hxx", ".py", ".workspace", ".json", ".xml", ".htm", ".html",
+                 ".css", ".js", ".yml", ".yaml", ".tex", ".inc", ".jsx"]
+
+
+def redact_all(path, recursive=True, destPath=None, max_blank=0,
+               remove_whitespace=False, redact=None,
+               extensions=[".php", ".htm", ".html", ".js", ".inc"]):
+    """Remove extra newlines from text file(s).
+    If binary, as determined by non-text characters present
+    (unless extension is in TEXT_DOT_EXTS), is not processed.
+
+    Args:
+        path (str): File or directory to read.
+        recursive (bool, optional): Whether to look in subfolders.
+            Defaults to True.
+        destPath (str, optional): Where to write result. Only valid if
+            path is a file! Defaults to path.
+        max_blank (int, optional): How many blank lines are allowed in a
+            row. Set to None to not remove blank lines. Defaults to 0.
+        remove_whitespace (bool, optional): Consider lines with
+            whitespace as blank lines. Defaults to False.
+        extensions (list[str]): Only redact these extensions.
+            NOTE: Redaction code will be PHP in any case.
+    """
+    assert max_blank >= 0
+    if os.path.islink(path):
+        logger.warning("* [redact_all] not traversing symlink: {}"
+                       .format(repr(path)))
+        return
+    if destPath:
+        if not os.path.isfile(path):
+            raise ValueError(
+                "You cannot specify a destPath since source is not a file: {}."
+                .format(repr(path)))
+    if os.path.isfile(path):
+        dotExtLower = os.path.splitext(path)[1].lower()
+        if extensions:
+            if dotExtLower not in extensions:
+                # Not a PHP file, so can't redact.
+                return
+        elif is_binary_file(path):
+            dotExtLower = os.path.splitext(path)[1].lower()
+            if dotExtLower in TEXT_DOT_EXTS:
+                logger.warning("* [redact_all] using binary file as"
+                               " text is due to text due to extension: {}"
+                               .format(repr(path)))
+            else:
+                logger.warning("* [redact_all] skipping binary: {}"
+                               .format(repr(path)))
+                return
+        tmpPath = None
+        if destPath is None:
+            destPath = path
+        tmpPath = destPath + ".tmp"
+        # if os.path.realpath(destPath) == os.path.realpath(path):
+        blanks = 0
+        # Deprecates redact_mysql_statements from redact_gnu
+
+        added_requires = False
+        replaced_count = 0
+        with open(tmpPath, "w") as outs:
+            with open(path, "r") as ins:
+                lineN = 0
+                persistentArgD = {}
+                for line in ins:
+                    lineN += 1  # start at 1
+                    processedLine = line
+                    if remove_whitespace:
+                        processedLine = line.strip()
+                    if not processedLine:
+                        blanks += 1
+                        if (max_blank is not None) and (blanks > max_blank):
+                            # Skip more than this many blank lines
+                            #   (0 to skip any blank lines)
+                            continue
+                    else:
+                        blanks = 0
+                    start_found = None
+                    if redact:
+                        for f_i, call_format in enumerate(DB_LINE_FORMATS):
+                            startI = line.find(call_format['starter'])
+                            if startI < 0:
+                                continue
+                            argsI = startI + len(call_format['starter'])
+                            endI = line.find(
+                                call_format['ender'],
+                                argsI)
+                            if endI < 0:
+                                raise NotImplementedError(
+                                    "Multiline SQL is not implemented: {}"
+                                    .format(line))
+                            argsS = line[argsI:endI]
+                            args = argsS.split(",")
+                            argD = OrderedDict()
+                            if len(args) != len(call_format['args']):
+                                other_format = None
+                                for other in DB_LINE_FORMATS[f_i+1:]:
+                                    if other['start'] == call_format['start']:
+                                        if len(other['args']) == len(args):
+                                            other_format = other
+                                if other_format is None:
+                                    raise ValueError(
+                                        "{}, line {}: Not modifying line due"
+                                        " to different # of args"
+                                        " than expected (no matching"
+                                        " function all in db_line_formats): {}"
+                                        .format(path, lineN, line))
+                                continue
+                            symbolArgs = []
+                            for i, argName in enumerate(args):
+                                if argName.startswith("'"):
+                                    args[i] = argName[1:-1].replace("\'", "'")
+                                elif argName.startswith('"'):
+                                    args[i] = argName[1:-1].replace("\\\"",
+                                                                    "\"")
+                                key = call_format['args'][i]
+                                argD[key] = args[i]
+                                if key == 'dbname':
+                                    # Switching db should forget credentials.
+                                    persistentArgD = {}
+                                persistentArgD[key] = argName
+                            newArgs = []
+                            alias = None
+                            if 'password' in call_format['args']:
+                                for redactI, tryRedact in enumerate(redact):
+                                    # keys: alias, db, host, user, password
+                                    if (tryRedact['user']
+                                            == persistentArgD['user']):
+                                        if (tryRedact['dbname']
+                                                == persistentArgD['dbname']):
+                                            alias = tryRedact['alias']
+                                            break
+                                if alias is None:
+                                    raise NotImplementedError(
+                                        "{}, line {}: dbname and user"
+                                        " did not appear before: {}"
+                                        .format(path, lineN, line))
+                            for i, argName in enumerate(call_format['args']):
+                                oldValue = args[i]
+                                if (argName.startswith("'")
+                                        or argName.startswith('"')
+                                        or argName.startswith("$")):
+                                    newArgs.append(oldValue)
+                                elif argName == "formatted_string":
+                                    varNames = get_format_keys(
+                                        call_format['string_format'])
+                                    # formatted = partial_format(
+                                    #     call_format['string_format'],
+                                    #     redact)
+                                    phpVars = {}
+                                    for _key in varNames:
+                                        phpVars[_key] = \
+                                            "{$redact->"+alias+"->"+_key+"}"
+                                    formatted = \
+                                        call_format['string_format'].format(
+                                            **phpVars
+                                        )
+                                    newArgs.append(formatted)
+                                else:
+                                    newArgs.append(
+                                        "{$redact->"+alias+"->"+argName+"}")
+                            line = (line[:argsI] + ", ".join(newArgs)
+                                    + line[endI:])
+                            replaced_count += 1
+                            continue  # NOTE: limits it to one statement/line
+                        for redaction in redact:
+                            if redaction['password'] in line:
+                                raise NotImplementedError(
+                                    "{}, line {}: password was not removed!"
+                                    .format(repr(path), lineN))
+                    if "<?php" in line and "?>" not in line:
+                        if not added_requires:
+                            outs.write(REDACTION_REQUIRES)
+                            added_requires = True
+                    outs.write(line)
+        if os.path.isfile(destPath):
+            os.remove(destPath)
+        shutil.move(tmpPath, destPath)
+        if replaced_count > 0 and not added_requires:
+            logger.warning(
+                "{}: Didn't add require statements since no multiline"
+                " `<?php` block."
+                .format(path))
+        return
+    if not recursive:
+        return
+    for sub in os.listdir(path):
+        subPath = os.path.join(path, sub)
+        # Do *not* forward the destPath argument (It raises exception
+        #   for a non-file above anyway).
+        redact_all(
+            subPath,
+            recursive=recursive,
+            max_blank=max_blank,
+            remove_whitespace=remove_whitespace,
+            redact=redact,
+            extensions=extensions,
+        )
 
 
 def find_param(haystack, needle, min_param=0, max_param=-1, fs=",",
@@ -307,12 +676,12 @@ def _new_process(luid=None):
     '''
     if luid is None:
         luid = gen_luid()
-    return {
-        'luid': luid,
-        'verb': 'no_op',
-        'commit': False,  # Change this to True if verb changes.
-        'command': ""
-    }
+    result = OrderedDict()
+    result['luid'] = luid
+    result['verb'] = "no_op"
+    result['commit'] = False
+    # formerly "command": "" (replaced my more types of 'statements')
+    return result
 
 
 VERSION_VERBS = [
@@ -320,12 +689,29 @@ VERSION_VERBS = [
 ]
 DEFAULT_VERSION_VERB = VERSION_VERBS[0]
 
-TRANSITION_VERBS = [
-    'pre_process',
-    'post_process',
-    'no_op',
-    'for_every_source',
-]
+ALL_VERBS = copy.deepcopy(VERSION_VERBS)
+
+# TRANSITION_VERBS = [
+#     'pre_process',
+#     'post_process',
+#     'no_op',
+# ]
+# ^ Deprecated.
+#   - also deprecates transition_field_order,
+#     _transition_template_fields, transition_template
+#   - Example deprecated anewcommit.json step
+#     (replaced by "functions": [list(function_name)+list(args)] in
+#     VERSION_VERBS step):
+# ALL_VERBS += TRANSITION_VERBS
+"""
+    {
+      "command": "remove_blank_lines",
+      "commit": true,
+      "luid": "35",
+      "verb": "pre_process"
+    },
+
+"""
 
 # The special verb is get_version, and is added via add_version.
 
@@ -392,20 +778,25 @@ def new_post_process(luid=None):
     return action
 
 
-def join_action_path(action, key, path=None):
+def join_action_path(action, statement, key, path=None):
     '''
     Args:
-        action (str): This must be a version action such as created
-            using the new_version function.
+        action (Union[dict, OrderedDict]): This must be a statement dict
+            that has the given key.
         path (str, optional): Use this as the base path. If None
             action['path'] will be used.
     '''
+    # formerly first arg was action dict such as created by
+    #   new_version
+    assert isinstance(action, (dict, OrderedDict))
+    assert isinstance(statement, (dict, OrderedDict))
+    assert isinstance(key, str)
     good_keys = ['source', 'destination']
-    if action['verb'] not in VERSION_VERBS:
-        raise ValueError(
-            'verb is \"{}\" but should be one of the following: {}'
-            ''.format(action['verb'], VERSION_VERBS)
-        )
+    # if action['verb'] not in VERSION_VERBS:
+    #     raise ValueError(
+    #         'verb is \"{}\" but should be one of the following: {}'
+    #         ''.format(action['verb'], VERSION_VERBS)
+    #     )
     if key not in good_keys:
         return ValueError(
             'key is \"{}\" but should be one of the following: {}'
@@ -414,13 +805,14 @@ def join_action_path(action, key, path=None):
     if path is None:
         path = action['path']
     dst = path
-    dst_sub = action.get(key)
+    dst_sub = statement.get(key)
     if dst_sub is not None:
         if len(dst_sub.strip()) == 0:
             dst_sub = None
     if dst_sub is None:
-        echo1('There is no sub path to join (luid={}).'
-              ''.format(action['luid']))
+        echo1('There is no sub path to join (luid={},'
+              ' statement={}).'
+              .format(action['luid'], statement))
         # raise ValueError('action["{}"] is blank.'.format(key))
     else:
         dst = os.path.join(dst, dst_sub)
@@ -611,7 +1003,7 @@ class ANCProject:
             alias (str): Name for the PHP associative array storing
                 the parameters for connecting to this database+user
                 pairing (This associative array will be under the
-                "redact" associative array).
+                'redact' associative array).
         """
         assert alias
         assert not alias[0].isnumeric()  # PHP variable can't start with #
@@ -691,18 +1083,20 @@ class ANCProject:
         '''
         action = _new_process()
         if direction == -1:
+            raise DeprecationWarning("pre_process")
             action['verb'] = 'pre_process'
         elif direction == -1:
+            raise DeprecationWarning("post_process")
             action['verb'] = 'post_process'
         else:
             raise ValueError("The direction must be -1 or 1.")
 
-        if action['verb'] not in TRANSITION_VERBS:
-            raise ValueError("The verb must be one of {} not {}"
-                             "".format(TRANSITION_VERBS, action['verb']))
+        # if action['verb'] not in TRANSITION_VERBS:
+        #     raise ValueError("The verb must be one of {} not {}"
+        #                      "".format(TRANSITION_VERBS, action['verb']))
 
-        return self.insert_where('luid', luid, action,
-                                 direction=direction)
+        # return self.insert_where('luid', luid, action,
+        #                          direction=direction)
 
     def append_statement_where(self, luid, statement, force=False):
         '''
@@ -713,12 +1107,12 @@ class ANCProject:
         Returns:
             bool: True if added, otherwise false.
         '''
-        parse_statement(statement)  # call this to validate/raise exception
+        statement_d = parse_statement(statement)  # raises if fails
         i = self._find_where('luid', luid)
         if self._actions[i].get('statements') is None:
             self._actions[i]['statements'] = []
-        if statement not in self._actions[i]['statements']:
-            self._actions[i]['statements'].append(statement)
+        if statement_d not in self._actions[i]['statements']:
+            self._actions[i]['statements'].append(statement_d)
             self.save()
             return True
         return False
@@ -728,17 +1122,18 @@ class ANCProject:
         Returns:
             bool: True if removed, otherwise False.
         '''
-        args = split_statement(statement)
-        if len(args) < 2:
-            raise ValueError(
-                'The statement "{}" does not resolve to >=2 parts: {}'
-                ''.format(statement, args)
-            )
+        # args = split_statement(statement)
+        # if len(args) < 2:
+        #     raise ValueError(
+        #         'The statement "{}" does not resolve to >=2 parts: {}'
+        #         ''.format(statement, args)
+        #     )
+        statement_d = parse_statement(statement)
         i = self._find_where('luid', luid)
         if self._actions[i].get('statements') is None:
             self._actions[i]['statements'] = []
-        if statement in self._actions[i]['statements']:
-            self._actions[i]['statements'].remove(statement)
+        if statement_d in self._actions[i]['statements']:
+            self._actions[i]['statements'].remove(statement_d)
             self.save()
             return True
         return False
@@ -916,7 +1311,7 @@ class ANCProject:
         Args:
             index (int): This is an index in self._actions (usually NOT
                 the same as self._actions[index].luid).
-            action (str): Insert this action dictionary.
+            action (dict): Insert this action dictionary.
             add_undo_step (optional, bool): This should only be False if
                 an undo/redo is doing the step, or there is some
                 particular internal reason not to record a step.
@@ -926,6 +1321,7 @@ class ANCProject:
                 substep is a command in the form of a list, and a step
                 is a list of lists (commands).
         '''
+        assert isinstance(action, (dict, OrderedDict))
         if index > len(self._actions):
             raise IndexError("The index {} is beyond len {}"
                              "".format(index, len(self._actions)))
@@ -995,11 +1391,12 @@ class ANCProject:
         '''
         Args:
             luid (str): Insert before this luid.
-            action (str): Insert this action dictionary.
+            action (dict): Insert this action dictionary.
             direction (optional, int): -1 to insert before the match, 1
                 to insert afterward (or after all related
                 post-processing steps if any).
         '''
+        assert isinstance(action, (dict, OrderedDict))
         newI = self._find_where(name, value)
         if direction == -1:
             pass  # newI is the index of the luid in this case.
@@ -1061,20 +1458,24 @@ class ANCProject:
     def get_gitignore_path(self):
         return os.path.join(self.get_project_dir(), ".gitignore")
 
-    def get_rsync_pair(self, ignore_root, rsync_from):
-        '''
+    def generate_rsync_files(self, ignore_root, rsync_from):
+        '''Convert .gitignore to rsync pattern files.
         Get a pair of include and exclude files (one or both can be None if
         not applicable) from the projects .gitignore file.
         The --include-from must be used before --exclude-from since rsync uses
         the first matching pattern.
 
         For further documentation see gitignore_to_rsync_pair in
-        pycodetool.ggrep.
+        hierosoft.ggrep.
 
         Args:
             ignore_root (optional, str) Behave as though the .gitignore
                 file is in this folder.
+
+        Returns:
+            tuple(str,str): The names of the files that were generated.
         '''
+        # formerly get_rsync_pair
         gitignore_path = self.get_gitignore_path()
         if gitignore_path is None:
             return None, None
@@ -1102,14 +1503,47 @@ class ANCProject:
             os.makedirs(path)
         return path
 
-    def generate_cache(self, luid, do_uncommitted=False):
+    def generate_cache(self, luid, do_uncommitted=False, increment_dir=None):
+        """Generate/regenerate repo at the given luid increment
+        (backup step to be transformed into a commit retroactively).
+
+        Args:
+            luid (int): Locally-unique step id that is unique to the
+                project (anewcommit.json).
+            do_uncommitted (bool, optional): do steps (versions) not
+                marked as "commit". Defaults to False.
+            increment_dir (str, optional): Where to perform *only one
+                step*. If this is not specified, then *all* steps up to luid
+                are performed. Defaults to None.
+
+        Raises:
+            NotImplementedError: Incorrect mode
+            ValueError: "use" required before remove_blank_lines
+            NotImplementedError: remove_blank_lines should be in
+                preprocess list, and is not itself an independent
+                sub-version.
+            SyntaxError: Unknown preprocess command
+            NotImplementedError: verb not implemented
+
+        Returns:
+            str: directory path of result
+        """
         unfiltered_commits_dir = self.get_cached_dir("commits")
-        tmp_dir = os.path.join(unfiltered_commits_dir, luid)
-        echo0("+ generating {}".format(tmp_dir))
+        out_dir = os.path.join(unfiltered_commits_dir, luid)
         last_i = self._find_where('luid', luid)
+        start = 0
+        if increment_dir:
+            start = last_i
+            out_dir = increment_dir
+            echo0("* performing increment on {}".format(repr(out_dir)))
+        else:
+            echo0("+ generating {}".format(repr(out_dir)))
         resync = True  # always resync the first time.
         progress_max = float(last_i+1)
-        for index in range(0, last_i+1):
+        for index, action in enumerate(self._actions):
+            if action.get('luid') is None:
+                logger.warning(f"Action {[index]} is missing 'luid'")
+        for index in range(start, last_i+1):
             action = self._actions[index]
             progress_f = float(index) / progress_max
             if not do_uncommitted:
@@ -1124,54 +1558,150 @@ class ANCProject:
                 ]
                 if mode == 'delete_then_add':
                     resync = True
-                if resync:
+                if resync:  # always resync first time.
                     cmd_start.append("--delete")
-                    resync = False
+                    resync = False  # only use once (default to False)
                 elif mode == 'overlay':
                     pass
+                else:
+                    raise NotImplementedError(f"Incorrect mode: {repr(mode)}")
+
                 statements = action.get('statements')
                 if statements is None:
-                    echo0("  - {} has no statements,"
-                          " so it will not be used."
+                    echo0("  - {} has no statements, so it will not be used."
                           .format(action))
                     continue
                 progress_subpart_increment = 1.0 / float(len(statements))
                 progress_subpart = -progress_subpart_increment
-                for statement in statements:
+                src = None
+                dst = None
+                copied_list = []
+                preprocess = action.get('preprocesses')
+                for statement_i, statement_d in enumerate(statements):
+                    assert isinstance(statement_d, (dict, OrderedDict)), \
+                        "New version requires statements stored as json dicts"
+                    if statement_d['keyword'] == "remove_blank_lines":
+                        if dst is None:
+                            raise ValueError(
+                                'Expected a "keyword": "use"'
+                                ' before "remove_blank_lines"')
+                        raise NotImplementedError(
+                            "remove_blank_lines is only implemented"
+                            " for preprocess list")
+                        continue
+                    assert statement_d['keyword'] == "use", \
+                        'Expected "keyword": "use" in {}'.format(statement_d)
+                    # assert " as " in statement
+                    # halves = statement.split(" as ")
+                    # assert halves[0].startswith("use ")
+                    # srcSub = halves[0][4:].strip()
+                    # dstSub = halves[1].strip()
+                    # assert srcSub, \
+                    #   f"redact missing src. name before 'as' in {statement}"
+                    # ^ comment since "use as" is allowed for using src direct
+
+                    # dstSub = statement_d.get('destination')
+                    # assert dstSub, \
+                    #     f"redact missing destination in {statement_d}"
+                    #     # f"redact missing dst. name after 'as' in {statement}"
+                    # otherwise implement using without destination
+                    #   (Using source as root of destination)
+                    # srcSub = statement_d.get('source')
+                    # NOTE: source&destination are checked by
+                    #   join_action_path below
+
+                    # parsed = parse_statement(statement)
+
                     progress_subpart += progress_subpart_increment
                     progress_numerator = float(index) + progress_subpart
                     progress_f = progress_numerator / progress_max
                     print("{}%".format(round(progress_f*100.0, 1)))
                     cmd_parts = cmd_start.copy()
-                    src = join_action_path(action, 'source')
-                    dst = join_action_path(action, 'destination', path=tmp_dir)
+                    srcRoot = join_action_path(action, statement_d, 'source')
+                    dstRoot = join_action_path(action, statement_d, 'destination',
+                                               path=out_dir)
+                    # src = os.path.join(srcRoot,srcSub) if srcSub else srcRoot
+                    # dst = os.path.join(dstRoot, dstSub)
+                    # NOTE: join_action_path already adds sub!
+                    src = srcRoot
+                    dst = dstRoot
                     ignore_root = src
-                    source_parts = None
-                    if action.get('source') is not None:
-                        source_parts = split_subs()
-                        while len(source_parts) > 1:
-                            ignore_root = os.path.dirname(source_parts)
-                            source_parts = source_parts[:-1]
-                        source_parts = None
+                    # source_parts = None
+                    # if action.get('source') is not None:
+                    #     source_parts = split_subs(   )
+                    #     # NOTE: ^ This part was never finished
+                    #     while len(source_parts) > 1:
+                    #         ignore_root = os.path.dirname(source_parts)
+                    #         source_parts = source_parts[:-1]
+                    #     source_parts = None
                     echo0('* Any absolute paths in gitignore will assume'
-                          ' "{}" is the directory containing ".gitignore".'
-                          ''.format(ignore_root))
-                    include_tmp, exclude_tmp = self.get_rsync_pair(
+                          ' {} is the directory containing ".gitignore".'
+                          .format(repr(ignore_root)))
+                    # originalSrc = src
+                    srcTemp = None
+                    redact = self.data.get('redact')
+                    if preprocess or redact:
+                        # Copy to a temp directory for preprocessing
+                        #   so we don't mangle src nor dest.
+                        assert isinstance(preprocess, list), \
+                            ("Expected preprocess list, got {}"
+                             .format(emit_cast(preprocess)))
+                        srcTemp = dst + "-statement-{}-tmp".format(statement_i)
+                        shutil.copytree(src, srcTemp)
+                        # ^ copytree raises FileExistsError if dst exists.
+                        print("* generating {}".format(repr(srcTemp)))
+                        redacted = False
+                        this_redact = redact
+                        if preprocess:
+                            for pre_command in preprocess:
+                                assert isinstance(pre_command, str)
+                                print("* [generate_cache] {} in {} (from {})"
+                                      .format(pre_command, srcTemp, src))
+                                if pre_command == "remove_blank_lines":
+                                    redact_all(srcTemp, redact=this_redact,
+                                               extensions=None)
+                                    # ^ extensions None for security!
+                                    if this_redact:
+                                        redacted = True
+                                    this_redact = None  # Only redact once
+                                else:
+                                    raise SyntaxError(
+                                        "Unknown preprocess entry: {}"
+                                        .format(emit_cast(pre_command)))
+                        if not redacted and this_redact:
+                            print("* [generate_cache] redact in {} (from {})"
+                                  .format(srcTemp, src))
+                            redact_all(srcTemp, max_blank=None,
+                                       redact=this_redact,
+                                       extensions=None)
+                            # ^ extensions None for security!
+                            this_redact = None
+                        # originalSrc = src
+                        src = srcTemp
+
+                    include_tmp, exclude_tmp = self.generate_rsync_files(
                         ignore_root,
                         src,
                     )
                     # The FIRST pattern is matched when using rsync, so
                     #   include must come first:
                     if include_tmp is not None:
-                        cmd_start += ['--include-from', include_tmp]
+                        cmd_parts += ['--include-from', include_tmp]
                     if exclude_tmp is not None:
-                        cmd_start += ['--exclude-from', exclude_tmp]
+                        cmd_parts += ['--exclude-from', exclude_tmp]
 
                     cmd_parts.append(src+"/")
                     cmd_parts.append(dst)
-                    sys.stderr.write('* getting "{}"...'.format(src))
+                    sys.stderr.write('* getting {}...'.format(repr(src)))
                     sys.stderr.flush()
+                    if not os.path.isdir(dst):
+                        sys.stderr.write('creating {}...'.format(repr(dst)))
+                        sys.stderr.flush()
+                        os.makedirs(dst)
+
                     # See <https://stackoverflow.com/a/61139019/4541104>:
+                    print("[generate_cache] running: {}"
+                          .format(shlex.join(cmd_parts)))
                     with subprocess.Popen(
                         cmd_parts, stdout=subprocess.PIPE, text=True,
                     ) as process:
@@ -1184,15 +1714,26 @@ class ANCProject:
                     if include_tmp is not None:
                         os.remove(include_tmp)
                     echo0("OK\n")
+                    if srcTemp:
+                        shutil.rmtree(srcTemp)
+                    # Clear the old info so modifier statements such as
+                    #   "remove_blank_lines" require "use" before
+                    #   each:
+                    if statement_d['keyword'] != "use":
+                        src = None
+                        dst = None
+            elif action['verb'] == "no_op":
+                pass
+            # TRANSITION_VERBS "pre_process", "post_process", "no_op"
             else:
+                raise NotImplementedError(f"verb {action['verb']} is not implemented")
                 if action.get('mode') is not None:
                     raise ValueError(
                         'Mode is {} but only the following verbs should have'
                         ' a mode: {}'.format(repr(action.get('mode')),
                                              VERSION_VERBS)
                     )
-                # TODO: do non-version verbs
-        return tmp_dir
+        return out_dir
 
 
 def main():

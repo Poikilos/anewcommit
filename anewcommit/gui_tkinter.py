@@ -25,6 +25,8 @@ import sys
 import json
 import copy
 import subprocess
+
+from collections import OrderedDict
 from datetime import (
     datetime,
     # timedelta,
@@ -56,6 +58,10 @@ else:
 
 # import math
 
+from hierosoft.logging2 import getLogger
+
+logger = getLogger(__name__)
+
 myPath = os.path.realpath(__file__)
 myDir = os.path.dirname(myPath)
 # staticDir = os.path.join(myDir, "static")
@@ -85,6 +91,7 @@ from anewcommit import (  # noqa: E402
     get_verbosity,
     set_verbosity,
     profile,
+    statement_to_str,
     substep_to_str,
     s2or3,
     newest_file_dt_in,
@@ -105,9 +112,12 @@ from anewcommit.scrollableframe import SFContainer  # noqa: E402
 verbosity = get_verbosity()
 
 verb_width = 1
-for verb in anewcommit.TRANSITION_VERBS:
+for verb in anewcommit.VERSION_VERBS:
     if len(verb) > verb_width:
         verb_width = len(verb)
+# for verb in anewcommit.TRANSITION_VERBS:
+#     if len(verb) > verb_width:
+#         verb_width = len(verb)
 
 mode_width = 1
 for mode in anewcommit.MODES:
@@ -118,7 +128,7 @@ WIDGET_TYPES = ["Checkbutton", "OptionMenu", "Entry", "Label"]
 
 actions_field_order = ['commit', 'verb', 'mode', 'name']
 actions_captions = ['       ', ' ^    ', 'Action']
-transition_field_order = ['commit', 'date', 'verb', 'command']
+# transition_field_order = ['commit', 'date', 'verb', 'command']
 version_field_order = ['commit', 'date', 'mode', 'name']
 
 # See
@@ -169,32 +179,33 @@ _version_template_fields = {
     },
 }
 
-_transition_template_fields = {
-    'luid': {
-        'hide': True,
-    },
-    'path': {
-        'hide': True,
-    },
-    'verb': {
-        'maxchars': verb_width,
-        'values': anewcommit.TRANSITION_VERBS,
-    },
-    'commit': {
-        'caption': '',
-    },
-    'command': {
-        'widget': 'Entry',
-        'maxchars': 200,
-    },
-}
+# _transition_template_fields = {
+#     'luid': {
+#         'hide': True,
+#     },
+#     'path': {
+#         'hide': True,
+#     },
+#     'verb': {
+#         'maxchars': verb_width,
+#         'values': anewcommit.TRANSITION_VERBS,
+#     },
+#     'commit': {
+#         'caption': '',
+#     },
+#     'command': {
+#         'widget': 'Entry',
+#         'maxchars': 200,
+#     },
+# }
 
-transition_template = {
-    'fields': _transition_template_fields,
-    'field_order': transition_field_order,
-    'field_widths': default_field_widths,
-}
+# transition_template = {
+#     'fields': _transition_template_fields,
+#     'field_order': transition_field_order,
+#     'field_widths': default_field_widths,
+# }
 # ^ modified later to include lambdas calling class methods.
+# ^ deprecated in favor of "statements" in an actual "get_version" step
 
 version_template = {
     'fields': _version_template_fields,
@@ -237,7 +248,7 @@ def dict_to_widgets(d, parent, template=None, warning_on_blank=True):
     Args:
         d (dict): This dictionary defines the set of widgets to use.
         parent (str): Set the frame that will contain the widget.
-        template (optional, dict) Describe the fields as they should
+        template (dict) Describe the fields as they should
             appear in the UI in a platform-independent way. If the field
             isn't described, its type will determine its UI (such as
             Entry box for str and Checkbutton for bool).
@@ -547,6 +558,8 @@ class MainFrame(SFContainer):
                                   command=self.ask_mark_max_date_before)
         self.fileMenu.add_command(label="Show latest file",
                                   command=self.on_mc_show_latest_file)
+        self.fileMenu.add_command(label="Run step on folder...",
+                                  command=self.on_click_run_step_on_folder)
         self.fileMenu.add_command(label="Exit", command=self.exitProgram)
         self.menu.add_cascade(label="File", menu=self.fileMenu)
 
@@ -749,11 +762,13 @@ class MainFrame(SFContainer):
             statements = action.get('statements')
             if statements is not None:
                 echo1("len(statements)={}".format(len(statements)))
-                for statement in statements:
-                    command = parse_statement(statement)
-                    if 'destination' not in command:
+                for statement_d in statements:
+                    assert isinstance(statement_d, (dict, OrderedDict)), \
+                        "New version requires storing statement as json dict"
+                    # statement_d = parse_statement(statement)
+                    if 'destination' not in statement_d:
                         continue
-                    source = command.get('source')
+                    source = statement_d.get('source')
                     if source is None:
                         continue
                         # There is no source, so the whole thing is the source
@@ -811,9 +826,10 @@ class MainFrame(SFContainer):
         Add a statement to the selection (or all if selected_i is None)
         only if the source contains the relative source in the given statement.
         '''
-        command = None
+        assert isinstance(statement, str)
+        statement_d = None
         try:
-            command = parse_statement(statement)
+            statement_d = parse_statement(statement)
         except Exception as ex:
             messagebox.showerror("Error", str(ex))
             return
@@ -821,7 +837,7 @@ class MainFrame(SFContainer):
         ranges = self._project.get_ranges()
         count = 0
         done = 0
-        relPath = command.get('source')
+        relPath = statement_d.get('source')
         if relPath is not None:
             if relPath.strip() == "":
                 relPath = None
@@ -866,7 +882,7 @@ class MainFrame(SFContainer):
             done += 1
             widget = ttk.Label(
                 self._items[version_i],
-                text=statement_to_caption(command),
+                text=statement_to_caption(statement_d),
             )
             widget.pack(side=tk.LEFT)
             widget.bind(
@@ -910,6 +926,32 @@ class MainFrame(SFContainer):
         in_dir = os.path.dirname(newest_path)
         open_file(in_dir)
 
+    def on_click_run_step_on_folder(self):
+        """Run Step on Folder was clicked.
+        Process any steps not yet performed on the destination folder,
+        given the metadata which tracks the current processing step ID
+        (LUID) otherwise starting at the first step.
+        - Also process destination using each 'redact' entry.
+        """
+        old_frame = None
+        # old_luid = self._selected_luid
+        if self._selected_luid is None:
+            messagebox.showerror("Run Step", "No step is selected.",
+                                 parent=self)
+            return
+        luid = self._selected_luid
+        old_frame_i = self._find('luid', self._selected_luid)
+        if old_frame_i > -1:
+            old_frame = self._items[old_frame_i]
+
+        out_dir = filedialog.askdirectory()
+        if not out_dir:
+            logger.warning("on_click_run_step_on_folder cancelled by user.")
+            return
+        assert os.path.isdir(out_dir)
+
+        to_dst = self._project.generate_cache(luid, increment_dir=out_dir)
+        assert to_dst == out_dir
 
     def on_click_row(self, luid):
         self.select_luid(luid)
@@ -952,6 +994,7 @@ class MainFrame(SFContainer):
                 vise versa). Normally this is only set if the user
                 presses "No" to use a partial match.
         '''
+        assert isinstance(statement, str)
         if not statement.startswith("use "):
             messagebox.showerror(
                 "Nothing to do",
@@ -1010,14 +1053,16 @@ class MainFrame(SFContainer):
             try_statements = try_action.get('statements')
             if try_statements is None:
                 continue
-            for try_statement in try_statements:
-                try_command = None
-                try:
-                    try_command = parse_statement(try_statement)
-                except ValueError as ex:
-                    echo0("'{}' failed since: {}".format(try_statement, ex))
-                    continue
-                from_dst = try_command.get('destination')
+            for try_statement_d in try_statements:
+                assert isinstance(try_statement_d, (dict, OrderedDict)), \
+                    "New version requires statements stored as json dict"
+                # try_statement_d = None
+                # try:
+                #     try_statement_d = parse_statement(try_statement)
+                # except ValueError as ex:
+                #     echo0("'{}' failed since: {}".format(try_statement, ex))
+                #     continue
+                from_dst = try_statement_d.get('destination')
                 if from_dst is None:
                     continue
 
@@ -1039,7 +1084,7 @@ class MainFrame(SFContainer):
                     BIG_IDX = I_TO
                     to_dst_subs = cmp_dst_lists[I_TO][min_len:]
                     from_dst_subs = []
-                from_src = try_command.get('source')
+                from_src = try_statement_d.get('source')
                 # ^ RELATIVE, so added to 'path' later
                 cmp_src_lists[I_FROM] = []
                 if from_src is not None:
@@ -1338,6 +1383,7 @@ class MainFrame(SFContainer):
         from_i, from_range = self._project.get_affected(click_i)
         from_action = self._project._actions[from_i]
         action = self._project._actions[click_i]
+        assert isinstance(action, (dict, OrderedDict))
         from_path = from_action['path']
         print(
             f"click_i={click_i} from_i={from_i} from_range={from_range}"
@@ -1347,15 +1393,18 @@ class MainFrame(SFContainer):
             if not os.path.isdir(to_path):
                 raise ValueError('"{}" does not exist.'.format(to_path))
         elif from_i > click_i:
-            cmd = parse_statement(action['command'])
-            to_path = os.path.join(from_path, cmd['source'])
-            echo0("to_path={}".format(to_path))
-            if not os.path.isdir(to_path):
-                raise ValueError(
-                    '"{}" does not exist.'
-                    ' Change the step to use a subfolder of "{}".'
-                    ''.format(to_path, from_path)
-                )
+            raise DeprecationWarning(
+                "'command' is replaced more 'statements'")
+            # statement_d = parse_statement(action['command'])
+            # TODO: for statement_d in action['statements']
+            # to_path = os.path.join(from_path, statement_d['source'])
+            # echo0("to_path={}".format(to_path))
+            # if not os.path.isdir(to_path):
+            #     raise ValueError(
+            #         '"{}" does not exist.'
+            #         ' Change the step to use a subfolder of "{}".'
+            #         ''.format(to_path, from_path)
+            #     )
         else:
             raise NotImplementedError(
                 "A preview requiring post-processing is not implemented."
@@ -1452,20 +1501,17 @@ class MainFrame(SFContainer):
         row = len(self._items)
         if action.get('verb') is None:
             raise ValueError("The verb is None")
-        elif action.get('verb') in anewcommit.TRANSITION_VERBS:
-            this_template = transition_template
-            options['verb'] = anewcommit.TRANSITION_VERBS
-            echo1("- transition: {}".format(action))
+        # elif action.get('verb') in anewcommit.TRANSITION_VERBS:
+        #     this_template = transition_template
+        #     options['verb'] = anewcommit.TRANSITION_VERBS
+        #     echo1("- transition: {}".format(action))
         elif action.get('verb') in anewcommit.VERSION_VERBS:
             this_template = version_template
             options['mode'] = anewcommit.MODES
             echo1("- version: {}".format(action))
         else:
             raise ValueError(
-                "The verb must be: {}"
-                "".format(anewcommit.TRANSITION_VERBS
-                          + anewcommit.VERSION_VERBS)
-            )
+                "The verb must be: {}".format(anewcommit.ALL_VERBS))
         echo1("* adding row at {}".format(row))
         frame = tk.Frame(self.scrollable_frame)
         # ^ Using ttk.Frame for the row yields:
@@ -1572,11 +1618,14 @@ class MainFrame(SFContainer):
 
         statements = action.get('statements')
         if statements is not None:
-            for _st in statements:
-                cmd = parse_statement(_st)
-                text = statement_to_caption(cmd)
+            for statement_d in statements:
+                # statement_d = parse_statement(_st)
+                assert isinstance(statement_d, (dict, OrderedDict)), \
+                    "New version requires statements stored as dicts"
+                _st = statement_to_str(statement_d)
+                text = statement_to_caption(statement_d)
                 widget = ttk.Label(frame, text=text)
-                if cmd.get('command') is not None:
+                if statement_d.get('keyword') is not None:
                     widget.bind(
                         "<Button>",
                         lambda e, l=luid, st=_st: self.on_click_sub(e, l, st),  # noqa: E741
@@ -2038,7 +2087,7 @@ class MainFrame(SFContainer):
         self._project.save()
         echo1("Added {}".format(count))
         for failPath in failPaths:
-            echo1('* failed to add {}'.format(failPath))
+            echo1('* failed to add {}'.format(repr(failPath)))
         self.dump1()
 
     def exitProgram(self):

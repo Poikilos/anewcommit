@@ -37,20 +37,21 @@ class TestParsing(unittest.TestCase):
             ["use", 'primary_site', "as", "main"]
         )
     def test_parse_statement(self):
-        subCmd = parse_statement('sub "Primary Site"')
-        self.assertEqual(subCmd['command'], "sub")
-        self.assertEqual(subCmd['source'], "Primary Site")
-        self.assertTrue(subCmd.get('destination') is None)
+        # 'sub' is deprecated
+        # subCmd = parse_statement('sub "Primary Site"')
+        # self.assertEqual(subCmd['keyword'], "sub")
+        # self.assertEqual(subCmd['source'], "Primary Site")
+        # self.assertTrue(subCmd.get('destination') is None)
 
         # Use "Primary Site" subfolder as program named "main":
         useCmd = parse_statement('use "Primary Site" as main')
-        self.assertEqual(useCmd['command'], "use")
+        self.assertEqual(useCmd['keyword'], "use")
         self.assertEqual(useCmd['source'], "Primary Site")
         self.assertEqual(useCmd['destination'], "main")
 
         # Use root of source as program named "main":
         useCmd = parse_statement('use as main')
-        self.assertEqual(useCmd['command'], "use")
+        self.assertEqual(useCmd['keyword'], "use")
         self.assertNotIn('source', useCmd)  # No source (implies ".")
         self.assertEqual(useCmd['destination'], "main")
 
@@ -58,18 +59,18 @@ class TestParsing(unittest.TestCase):
         try:
             parse_statement("foo main")
         except ValueError as ex:
-            if ("foo" in str(ex)) and ("command" in str(ex)):
+            if ("foo" in str(ex)) and ("keyword" in str(ex)):
                 exceptionIsGood = True
             else:
                 echo0(
                     "parse_statement threw an exception but did not state that"
-                    "the foo command is invalid."
+                    "the foo keyword is invalid."
                 )
                 raise ex
         if not exceptionIsGood:
             raise RuntimeError(
                 "parse_statement should throw an exception and state that"
-                "the foo command is bad."
+                "the foo keyword is bad."
             )
         else:
             echo0("parse_statement succeeded in blocking foo.")
