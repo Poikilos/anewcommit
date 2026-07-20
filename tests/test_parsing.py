@@ -23,6 +23,7 @@ from anewcommit import (  # noqa: E402
     parse_statement,
     split_root,
     split_subs,
+    get_format_keys,
 )
 
 
@@ -89,6 +90,18 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(split_subs("a"), ["a"])
         self.assertEqual(split_subs("/a"), ["/a"])
 
+    def test_get_format_keys(self):
+        keys = get_format_keys("Hello {a}, the {abc} is {def}.")
+        self.assertEqual(keys, ["a", "abc", "def"])
+        keys = get_format_keys("Hello {a}, the {abc} is {def}")
+        self.assertEqual(keys, ["a", "abc", "def"])
+        keys = get_format_keys("{a}, the {abc} is {def}")
+        self.assertEqual(keys, ["a", "abc", "def"])
+        keys = get_format_keys("{a}{abc}{def}")
+        self.assertEqual(keys, ["a", "abc", "def"])
+
+        keys = get_format_keys(b"Hello {a}, the {abc} is {def}.")
+        self.assertEqual(keys, [b"a", b"abc", b"def"])
 
 if __name__ == "__main__":
     unittest.main()

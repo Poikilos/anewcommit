@@ -943,13 +943,27 @@ class MainFrame(SFContainer):
         old_frame_i = self._find('luid', self._selected_luid)
         if old_frame_i > -1:
             old_frame = self._items[old_frame_i]
-
-        out_dir = filedialog.askdirectory()
+        start_dir = None
+        if 'recent_destinations' in self._project.data:
+            if self._project.data['recent_destinations']:
+                start_dir = self._project.data['recent_destinations'][0]
+        out_dir = filedialog.askdirectory(initialdir=start_dir)
         if not out_dir:
             logger.warning("on_click_run_step_on_folder cancelled by user.")
             return
         assert os.path.isdir(out_dir)
-
+        if 'recent_destinations' not in self._project.data:
+            self._project.data['recent_destinations'] = []
+        if out_dir in self._project.data['recent_destinations']:
+            if out_dir != self._project.data['recent_destinations'][0]:
+                # If not at the top, move it to the top.
+                self._project.data['recent_destinations'].remove(out_dir)
+                self._project.data['recent_destinations'].insert(0, out_dir)
+                self._project.save()
+        else:
+            # Place most recent first.
+            self._project.data['recent_destinations'].insert(0, out_dir)
+            self._project.save()
         to_dst = self._project.generate_cache(luid, increment_dir=out_dir)
         assert to_dst == out_dir
 

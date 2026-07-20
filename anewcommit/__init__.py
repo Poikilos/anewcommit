@@ -55,14 +55,15 @@ DB_LINE_FORMATS = [
     {
         'starter': 'EyeMySQLAdap(',
         'ender': ')',
-        'args': ["dbhost", "dbuser", "dbpass", "dbname"]
+        # 'args': ["dbhost", "dbuser", "dbpass", "dbname"]
+        'args': ["host", "user", "password", "db"]
     },
     {
         'starter': "define(",
         'ender': ")",
         'args': ["'SQLC'", "formatted_string"],
         # ^ Only process define if using this literal (first arg)
-        'string_format': "mysql://{dbhost}:{dbuser}@{dbpass}/{dbname}",
+        'string_format': "mysql://{host}:{user}@{password}/{db}",
         # NOTE: ^ the arg is quoted!
     },
     {
@@ -70,18 +71,18 @@ DB_LINE_FORMATS = [
         'ender': ")",
         'args': ['"SQLC"', "formatted_string"],
         # ^ Only process define if using this literal (first arg)
-        'string_format': "mysql://{dbhost}:{dbuser}@{dbpass}/{dbname}",
+        'string_format': "mysql://{host}:{user}@{password}/{db}",
         # NOTE: ^ the arg is quoted!
     },
     {
         'starter': "mysql_select_db(",
         'ender': ")",
-        'args': ['dbname'],
+        'args': ['db'],
     },
     {
         'starter': "mysql_select_db(",
         'ender': ")",
-        'args': ["dbname", "$conn"],
+        'args': ["db", "$conn"],
         # $conn is the variable holding the return of
         # mysql_connect
         # - "If the link identifier is not specified, the last
@@ -92,26 +93,26 @@ DB_LINE_FORMATS = [
     {
         'starter': "mysqli_select_db(",
         'ender': ")",
-        'args': ["$conn", "dbname"],
+        'args': ["$conn", "db"],
         # conn is required in the case of mysqli
         # $conn is the variable holding the return of mysql_connect
         # NOTE: mysql_connect also has optional 4th arg for
-        #   default dbname, so mysqli_select_db may not be
+        #   default db, so mysqli_select_db may not be
         #   present.
     },
     {
         'starter': "mysqli_connect(",
         'ender': ")",
-        'args': ["dbhost", "dbuser", "dbpass"],
+        'args': ["host", "user", "password"],
     },
     {
         'starter': "mysql_connect(",
         'ender': ")",
-        'args': ["dbhost", "dbuser", "dbpass"],
+        'args': ["host", "user", "password"],
     },
 ]
 
-REDACTION_REQUIRES = """
+REDACTION_REQUIRES = b"""
 if (file_exists("../redact.php")) {
     $redact = include("../redact.php");
 } elseif (file_exists("../../redact.php")) {
@@ -140,6 +141,18 @@ def formatted_ex(ex):
     return "{}".format(type(ex).__name__)
 
 
+def safe_encode(bs):
+    s = bs
+    try:
+        s = bs.decode()
+    except UnicodeDecodeError:
+        pass
+    if isinstance(bs, bytearray):
+        # remove `bytearray(b'` and `')`
+        return str(bs)[12:-2]
+    return str(bs)[2:-1]
+
+
 def partial_format(fmt, d):
     assert isinstance(fmt, str)
     assert isinstance(d, dict)
@@ -150,17 +163,27 @@ def partial_format(fmt, d):
     return fmt.format(**partialD)
 
 
-def get_format_keys(fmt):
+def get_format_keys(fmt, enclosure=["{", "}"]):
     keys = []
-    assert isinstance(fmt, str)
+    if isinstance(fmt, (bytes, bytearray)):
+        enclosureB = bytearray()
+        # ^ Change to bytearray so int compare works below!
+        for s in enclosure:
+            enclosureB += s.encode()
+        enclosure = enclosureB
+        assert isinstance(enclosure, bytearray)
+        assert isinstance(enclosure[0], int)
+    else:
+        assert isinstance(fmt, str)
     i = -1
     while i + 1 < len(fmt):
         i += 1
-        if fmt[i] == "{":
-            end = fmt.find("}", i)
+        if fmt[i] == enclosure[0]:
+            end = fmt.find(enclosure[1], i)
             if end < 0:
-                raise ValueError("Start '{' without '}' in %s"
-                                 % (repr(fmt)))
+                raise ValueError("Start %s without %s in %s"
+                                 % (repr(enclosure[0]), repr(enclosure[1]),
+                                    repr(fmt)))
             keys.append(fmt[i+1:end])
             i = end
     return keys
@@ -444,6 +467,297 @@ TEXT_DOT_EXTS = [".txt", ".md", ".rst", ".php", ".c", ".h", ".cxx", ".cpp",
                  ".hxx", ".py", ".workspace", ".json", ".xml", ".htm", ".html",
                  ".css", ".js", ".yml", ".yaml", ".tex", ".inc", ".jsx"]
 
+def read_binary_lines(path):
+    lines = []
+    start = 0
+    end = 0
+    data = b""
+    with open(path, "rb") as ins:
+        data = ins.readlines()
+    return data
+
+
+def redact_file(path, destPath=None, max_blank=0,
+                remove_whitespace=False, redact=None,
+                extensions=[".php", ".htm", ".html", ".js", ".inc"],
+                tmpPath=None):
+    dotExtLower = os.path.splitext(path)[1].lower()
+    redact = redact['mysql']
+    if extensions:
+        if dotExtLower not in extensions:
+            # Not a PHP file, so can't redact.
+            return
+    elif is_binary_file(path):
+        dotExtLower = os.path.splitext(path)[1].lower()
+        if dotExtLower in TEXT_DOT_EXTS:
+            logger.warning("* [redact_all] using binary file as"
+                            " text is due to text due to extension: {}"
+                            .format(repr(path)))
+        else:
+            logger.warning("* [redact_all] skipping binary: {}"
+                            .format(repr(path)))
+            return
+    if destPath is None:
+        destPath = path
+    if tmpPath is None:
+        tmpPath = destPath + ".tmp"
+    # if os.path.realpath(destPath) == os.path.realpath(path):
+    blanks = 0
+    # Deprecates redact_mysql_statements from redact_gnu
+
+    added_requires = False
+    replaced_count = 0
+    with open(tmpPath, "wb") as outs:
+        lineN = 0
+        persistentArgD = {}
+        lines = None
+        with open(path, "rb") as ins:
+            lines = ins.readlines()
+        for line in lines:
+            lineN += 1  # start at 1
+            processedLine = line
+            if remove_whitespace:
+                processedLine = line.strip()
+            if not processedLine:
+                blanks += 1
+                if (max_blank is not None) and (blanks > max_blank):
+                    # Skip more than this many blank lines
+                    #   (0 to skip any blank lines)
+                    continue
+            else:
+                blanks = 0
+            if redact:
+                for f_i, s_call_format in enumerate(DB_LINE_FORMATS):
+                    call_format = {}
+                    for cKey, cValue in s_call_format.items():
+                        # Convert to bytes
+                        if isinstance(cValue, list):
+                            call_format[cKey] = []
+                            for item in cValue:
+                                call_format[cKey].append(item.encode())
+                            continue
+                        call_format[cKey] = cValue.encode()
+                    startI = line.find(call_format['starter'])
+                    if startI < 0:
+                        continue
+                    argsI = startI + len(call_format['starter'])
+                    endI = line.find(
+                        call_format['ender'],
+                        argsI)
+                    if endI < 0:
+                        raise NotImplementedError(
+                            "Multiline SQL is not implemented: {}"
+                            .format(line))
+                    argsB = line[argsI:endI]
+                    secrets = argsB.split(b",")
+                    secretsD = OrderedDict()
+                    for i, argName in enumerate(secrets):
+                        secrets[i] = argName.strip()
+
+                    # Unless a certain literal is required
+                    #   (such as define('SQLC...):
+                    if s_call_format['args'][0][0] in "\"'":
+                        if call_format['args'][0] not in secrets[0]:
+                            # A literal was specified in the
+                            #   format but not found in line.
+                            continue
+
+                    if len(secrets) != len(call_format['args']):
+                        # If there isn't another function call
+                        #   pattern that has a different # of args,
+                        #   then raise (secrets cannot be replaced).
+                        other_format = None
+                        counts = [len(call_format['args'])]
+                        for other in DB_LINE_FORMATS[f_i+1:]:
+                            if other['starter'].encode() == call_format['starter']:
+                                counts.append(len(other['args']))
+                                if len(other['args']) == len(secrets):
+                                    other_format = other
+                        if other_format is None:
+                            raise NotImplementedError(
+                                "{}, line {}: Not modifying line due"
+                                " to {} args"
+                                " (no matching function in db_line_formats,"
+                                " known arg counts for {} are {}): {}"
+                                .format(path, lineN, len(secrets),
+                                        call_format['starter'], counts,
+                                        line))
+                        continue  # match later is guaranteed in this case
+                    for i, argName in enumerate(secrets):
+                        keyStr = s_call_format['args'][i]
+                        # *Only* clear *before* not during line
+                        #    (otherwise earlier args would be lost!).
+                        if keyStr == 'user':
+                        #     # Switching user but *not* db should forget
+                        #     #   credentials (db can be selected later).
+                            persistentArgD = {}
+                    hasLiterals = False
+                    for i, argName in enumerate(secrets):
+                        if argName.startswith(b"'"):
+                            argName = argName[1:-1].replace(b"\'", b"'")
+                            secrets[i] = argName
+                        elif argName.startswith(b'"'):
+                            argName = argName[1:-1].replace(b"\\\"", b"\"")
+                            secrets[i] = argName
+                            if not argName.startswith(b"$"):
+                                hasLiterals = True
+                        else:
+                            if not argName.startswith(b"$"):
+                                hasLiterals = True
+                        keyStr = s_call_format['args'][i]
+                        secretsD[keyStr] = secrets[i]
+                        assert isinstance(keyStr, str)
+                        persistentArgD[keyStr] = argName
+                    if not hasLiterals:
+                        logger.warning(
+                            "{}, line {}: Not redacting line"
+                            " since no arguments are literals: {}"
+                            .format(path, lineN, line))
+                        break
+                    newArgs = []
+                    alias = None  # type: str|None
+                    matchKey = 'user'
+                    if 'user' not in persistentArgD:
+                        if 'db' in persistentArgD:
+                            matchKey = 'db'
+                        else:
+                            matchKey = None
+                    # if b'user' in call_format['args']:
+                    if matchKey and (matchKey in persistentArgD):
+                        for redactI, tryRedact in enumerate(redact):
+                            # keys: alias, db, host, user, password
+                            if (tryRedact[matchKey].encode()
+                                    == persistentArgD[matchKey]):
+                                if 'host' not in persistentArgD:
+                                    logger.warning(
+                                        "host not detected in {} for line: {}"
+                                        .format(persistentArgD, line))
+                                    continue
+                                elif (tryRedact['host'].encode()
+                                      == persistentArgD['host']):
+                                    alias = tryRedact['alias']
+                                    break
+                                elif persistentArgD['host'] == b"localhost":
+                                    alias = tryRedact['alias']
+                                    logger.warning(
+                                        "Assuming alias {} but host {} != {}"
+                                        .format(tryRedact['alias'],
+                                                tryRedact['host'],
+                                                persistentArgD['host'])
+                                    )
+                                    break
+                                else:
+                                    alias = tryRedact['alias']
+                                    logger.warning(
+                                        "Assuming alias {} but host {} != {}"
+                                        .format(tryRedact['alias'],
+                                                tryRedact['host'],
+                                                persistentArgD['host'])
+                                    )
+                                    break
+                            else:
+                                logger.warning(
+                                    "{} != {}"
+                                    .format(tryRedact[matchKey],
+                                            persistentArgD[matchKey])
+                                )
+                        # if alias is None:
+                        #     raise NotImplementedError(
+                        #         "{}, line {}: db and {}"
+                        #         " did not appear in: {}"
+                        #         .format(path, lineN, matchKey, line))
+                    if alias is None:
+                        alias = persistentArgD.get('alias')
+                    else:
+                        persistentArgD['alias'] = alias
+                    if alias is None:
+                        raise NotImplementedError(
+                            "{}, line {}: db or user (tried {}, found {})"
+                            " did not appear before or in: {}"
+                            .format(path, lineN, matchKey, persistentArgD,
+                                    line))
+                    for i, argName in enumerate(call_format['args']):
+                        oldValue = secrets[i]
+                        if (argName.startswith(b"'")
+                                or argName.startswith(b'"')
+                                or argName.startswith(b"$")):
+                            newArgs.append(oldValue)
+                        elif argName == b"formatted_string":
+                            varNames = get_format_keys(
+                                call_format['string_format'])
+                            # formatted = partial_format(
+                            #     call_format['string_format'],
+                            #     redact)
+                            phpVars = {}
+                            for _key in varNames:
+                                phpVars[_key] = \
+                                    (b"{$redact->"+alias.encode()+b"->"+_key
+                                     +b"}")
+                            formatted = \
+                                call_format['string_format'].format(
+                                    **phpVars
+                                )
+                            newArgs.append(
+                                b'"' + formatted.replace(b"'", b"\\'") + b"'")
+                        else:
+                            if alias is None:
+                                findArgI = None
+                                for _i, _a in enumerate(call_format['args']):
+                                    assert isinstance(_a, bytes)
+                                    if _a == b'db':
+                                        findArgI = _i
+                                        break
+                                if findArgI:
+                                    for rI, rDict in enumerate(redact):
+                                        assert isinstance(rDict['db'], bytes)
+                                        assert isinstance(secrets[findArgI],
+                                                          bytes)
+                                        if rDict['db'] == secrets[findArgI]:
+                                            alias = rDict['alias']
+                                            break
+                            if alias is None:
+                                raise NotImplementedError(
+                                    "{}, line {}: Database name wasn't defined"
+                                    " before using it: {}...{}"
+                                    .format(path, lineN,
+                                            safe_encode(line[:argsI]),
+                                            safe_encode(line[endI:])))
+                            newArgs.append(
+                                b"{$redact->"+alias.encode()+b"->"+argName
+                                +b"}")
+                    oldLine = line
+                    line = (line[:argsI] + b", ".join(newArgs)
+                            + line[endI:])
+                    print("REPLACED\n  {} with\n  {}"
+                          .format(oldLine, line))
+                    replaced_count += 1
+                    break  # NOTE: break: redact only 1 statement/line
+                for redaction in redact:
+                    if redaction['password'].encode() in line:
+                        error = (
+                            "{}, line {}: password {} was not removed!: {}"
+                            .format(repr(path), lineN,
+                                    repr(redaction['password']), line))
+                        if redaction['user'].encode() in line:
+                            raise NotImplementedError(error)
+                        else:
+                            # Maybe the password was too generic,
+                            #   and was found in some other context.
+                            logger.warning(error)
+            if (b"<?php" in line) and (b"?>" not in line):
+                if not added_requires:
+                    outs.write(REDACTION_REQUIRES)
+                    added_requires = True
+            outs.write(line)
+    if os.path.isfile(destPath):
+        os.remove(destPath)
+    shutil.move(tmpPath, destPath)
+    if replaced_count > 0 and not added_requires:
+        logger.warning(
+            "{}: Didn't add require statements since no multiline"
+            " `<?php` block."
+            .format(path))
+
 
 def redact_all(path, recursive=True, destPath=None, max_blank=0,
                remove_whitespace=False, redact=None,
@@ -457,7 +771,7 @@ def redact_all(path, recursive=True, destPath=None, max_blank=0,
         recursive (bool, optional): Whether to look in subfolders.
             Defaults to True.
         destPath (str, optional): Where to write result. Only valid if
-            path is a file! Defaults to path.
+            path is a file! Defaults to path for each file recursively.
         max_blank (int, optional): How many blank lines are allowed in a
             row. Set to None to not remove blank lines. Defaults to 0.
         remove_whitespace (bool, optional): Consider lines with
@@ -465,7 +779,8 @@ def redact_all(path, recursive=True, destPath=None, max_blank=0,
         extensions (list[str]): Only redact these extensions.
             NOTE: Redaction code will be PHP in any case.
     """
-    assert max_blank >= 0
+    if max_blank is not None:
+        assert max_blank >= 0
     if os.path.islink(path):
         logger.warning("* [redact_all] not traversing symlink: {}"
                        .format(repr(path)))
@@ -476,154 +791,16 @@ def redact_all(path, recursive=True, destPath=None, max_blank=0,
                 "You cannot specify a destPath since source is not a file: {}."
                 .format(repr(path)))
     if os.path.isfile(path):
-        dotExtLower = os.path.splitext(path)[1].lower()
-        if extensions:
-            if dotExtLower not in extensions:
-                # Not a PHP file, so can't redact.
-                return
-        elif is_binary_file(path):
-            dotExtLower = os.path.splitext(path)[1].lower()
-            if dotExtLower in TEXT_DOT_EXTS:
-                logger.warning("* [redact_all] using binary file as"
-                               " text is due to text due to extension: {}"
-                               .format(repr(path)))
-            else:
-                logger.warning("* [redact_all] skipping binary: {}"
-                               .format(repr(path)))
-                return
-        tmpPath = None
-        if destPath is None:
-            destPath = path
-        tmpPath = destPath + ".tmp"
-        # if os.path.realpath(destPath) == os.path.realpath(path):
-        blanks = 0
-        # Deprecates redact_mysql_statements from redact_gnu
-
-        added_requires = False
-        replaced_count = 0
-        with open(tmpPath, "w") as outs:
-            with open(path, "r") as ins:
-                lineN = 0
-                persistentArgD = {}
-                for line in ins:
-                    lineN += 1  # start at 1
-                    processedLine = line
-                    if remove_whitespace:
-                        processedLine = line.strip()
-                    if not processedLine:
-                        blanks += 1
-                        if (max_blank is not None) and (blanks > max_blank):
-                            # Skip more than this many blank lines
-                            #   (0 to skip any blank lines)
-                            continue
-                    else:
-                        blanks = 0
-                    start_found = None
-                    if redact:
-                        for f_i, call_format in enumerate(DB_LINE_FORMATS):
-                            startI = line.find(call_format['starter'])
-                            if startI < 0:
-                                continue
-                            argsI = startI + len(call_format['starter'])
-                            endI = line.find(
-                                call_format['ender'],
-                                argsI)
-                            if endI < 0:
-                                raise NotImplementedError(
-                                    "Multiline SQL is not implemented: {}"
-                                    .format(line))
-                            argsS = line[argsI:endI]
-                            args = argsS.split(",")
-                            argD = OrderedDict()
-                            if len(args) != len(call_format['args']):
-                                other_format = None
-                                for other in DB_LINE_FORMATS[f_i+1:]:
-                                    if other['start'] == call_format['start']:
-                                        if len(other['args']) == len(args):
-                                            other_format = other
-                                if other_format is None:
-                                    raise ValueError(
-                                        "{}, line {}: Not modifying line due"
-                                        " to different # of args"
-                                        " than expected (no matching"
-                                        " function all in db_line_formats): {}"
-                                        .format(path, lineN, line))
-                                continue
-                            symbolArgs = []
-                            for i, argName in enumerate(args):
-                                if argName.startswith("'"):
-                                    args[i] = argName[1:-1].replace("\'", "'")
-                                elif argName.startswith('"'):
-                                    args[i] = argName[1:-1].replace("\\\"",
-                                                                    "\"")
-                                key = call_format['args'][i]
-                                argD[key] = args[i]
-                                if key == 'dbname':
-                                    # Switching db should forget credentials.
-                                    persistentArgD = {}
-                                persistentArgD[key] = argName
-                            newArgs = []
-                            alias = None
-                            if 'password' in call_format['args']:
-                                for redactI, tryRedact in enumerate(redact):
-                                    # keys: alias, db, host, user, password
-                                    if (tryRedact['user']
-                                            == persistentArgD['user']):
-                                        if (tryRedact['dbname']
-                                                == persistentArgD['dbname']):
-                                            alias = tryRedact['alias']
-                                            break
-                                if alias is None:
-                                    raise NotImplementedError(
-                                        "{}, line {}: dbname and user"
-                                        " did not appear before: {}"
-                                        .format(path, lineN, line))
-                            for i, argName in enumerate(call_format['args']):
-                                oldValue = args[i]
-                                if (argName.startswith("'")
-                                        or argName.startswith('"')
-                                        or argName.startswith("$")):
-                                    newArgs.append(oldValue)
-                                elif argName == "formatted_string":
-                                    varNames = get_format_keys(
-                                        call_format['string_format'])
-                                    # formatted = partial_format(
-                                    #     call_format['string_format'],
-                                    #     redact)
-                                    phpVars = {}
-                                    for _key in varNames:
-                                        phpVars[_key] = \
-                                            "{$redact->"+alias+"->"+_key+"}"
-                                    formatted = \
-                                        call_format['string_format'].format(
-                                            **phpVars
-                                        )
-                                    newArgs.append(formatted)
-                                else:
-                                    newArgs.append(
-                                        "{$redact->"+alias+"->"+argName+"}")
-                            line = (line[:argsI] + ", ".join(newArgs)
-                                    + line[endI:])
-                            replaced_count += 1
-                            continue  # NOTE: limits it to one statement/line
-                        for redaction in redact:
-                            if redaction['password'] in line:
-                                raise NotImplementedError(
-                                    "{}, line {}: password was not removed!"
-                                    .format(repr(path), lineN))
-                    if "<?php" in line and "?>" not in line:
-                        if not added_requires:
-                            outs.write(REDACTION_REQUIRES)
-                            added_requires = True
-                    outs.write(line)
-        if os.path.isfile(destPath):
-            os.remove(destPath)
-        shutil.move(tmpPath, destPath)
-        if replaced_count > 0 and not added_requires:
-            logger.warning(
-                "{}: Didn't add require statements since no multiline"
-                " `<?php` block."
-                .format(path))
+        try:
+            tmpPath = path + ".tmp"
+            redact_file(path, destPath=destPath, max_blank=max_blank,
+                        remove_whitespace=remove_whitespace, redact=redact,
+                        extensions=extensions, tmpPath=tmpPath)
+        except UnicodeDecodeError:
+            logger.error("Not a unicode file: {}".format(repr(path)))
+            if os.path.isfile(tmpPath):
+                os.remove(tmpPath)
+            raise
         return
     if not recursive:
         return
@@ -1643,9 +1820,6 @@ class ANCProject:
                     if preprocess or redact:
                         # Copy to a temp directory for preprocessing
                         #   so we don't mangle src nor dest.
-                        assert isinstance(preprocess, list), \
-                            ("Expected preprocess list, got {}"
-                             .format(emit_cast(preprocess)))
                         srcTemp = dst + "-statement-{}-tmp".format(statement_i)
                         shutil.copytree(src, srcTemp)
                         # ^ copytree raises FileExistsError if dst exists.
@@ -1653,14 +1827,23 @@ class ANCProject:
                         redacted = False
                         this_redact = redact
                         if preprocess:
+                            assert isinstance(preprocess, list), \
+                                ("Expected preprocess list, got {}"
+                                .format(emit_cast(preprocess)))
                             for pre_command in preprocess:
                                 assert isinstance(pre_command, str)
                                 print("* [generate_cache] {} in {} (from {})"
                                       .format(pre_command, srcTemp, src))
                                 if pre_command == "remove_blank_lines":
-                                    redact_all(srcTemp, redact=this_redact,
-                                               extensions=None)
-                                    # ^ extensions None for security!
+                                    try:
+                                        redact_all(srcTemp, redact=this_redact,
+                                                extensions=None)
+                                        # ^ extensions None for security!
+                                    except:
+                                        logger.warning("Removing tmp: {}"
+                                                       .format(repr(srcTemp)))
+                                        shutil.rmtree(srcTemp)
+                                        raise
                                     if this_redact:
                                         redacted = True
                                     this_redact = None  # Only redact once
@@ -1671,10 +1854,16 @@ class ANCProject:
                         if not redacted and this_redact:
                             print("* [generate_cache] redact in {} (from {})"
                                   .format(srcTemp, src))
-                            redact_all(srcTemp, max_blank=None,
-                                       redact=this_redact,
-                                       extensions=None)
-                            # ^ extensions None for security!
+                            try:
+                                redact_all(srcTemp, max_blank=None,
+                                        redact=this_redact,
+                                        extensions=None)
+                                # ^ extensions None for security!
+                            except:
+                                logger.warning("Removing tmp: {}"
+                                                .format(repr(srcTemp)))
+                                shutil.rmtree(srcTemp)
+                                raise
                             this_redact = None
                         # originalSrc = src
                         src = srcTemp
@@ -1715,6 +1904,7 @@ class ANCProject:
                         os.remove(include_tmp)
                     echo0("OK\n")
                     if srcTemp:
+                        logger.warning("Removing tmp: {}".format(srcTemp))
                         shutil.rmtree(srcTemp)
                     # Clear the old info so modifier statements such as
                     #   "remove_blank_lines" require "use" before
