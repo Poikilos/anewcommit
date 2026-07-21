@@ -12,6 +12,7 @@
 			"dbhost",
 			"dbpass",
 			"dbuser",
+			"dilithium",
 			"ggrep",
 			"Gustafson",
 			"hierosoft",
@@ -38,6 +39,7 @@
 			"substep",
 			"tearoff",
 			"textvariable",
+			"unformat",
 			"winnative",
 			"xajax"
 		]

@@ -3,19 +3,20 @@ from __future__ import print_function
 
 from collections import OrderedDict
 import copy
+import csv
+import json
 import shlex
 import shutil
 import sys
 import os
 import platform
 import subprocess
-import json
-from datetime import datetime, timezone
 import pathlib
-from io import StringIO
-import csv
+import urllib
 import warnings
 
+from datetime import datetime, timezone
+from io import StringIO
 # from .find_pycodetool import pycodetool
 
 from pycodetool.parsing import (
@@ -63,7 +64,7 @@ DB_LINE_FORMATS = [
         'ender': ")",
         'args': ["'SQLC'", "formatted_string"],
         # ^ Only process define if using this literal (first arg)
-        'string_format': "mysql://{host}:{user}@{password}/{db}",
+        'string_format': "mysql://{user}:{password}@{host}/{db}",
         # NOTE: ^ the arg is quoted!
     },
     {
@@ -71,7 +72,7 @@ DB_LINE_FORMATS = [
         'ender': ")",
         'args': ['"SQLC"', "formatted_string"],
         # ^ Only process define if using this literal (first arg)
-        'string_format': "mysql://{host}:{user}@{password}/{db}",
+        'string_format': "mysql://{user}:{password}@{host}/{db}",
         # NOTE: ^ the arg is quoted!
     },
     {
@@ -106,9 +107,36 @@ DB_LINE_FORMATS = [
         'args': ["host", "user", "password"],
     },
     {
+        'starter': "mysqli_connect(",
+        'ender': ")",
+        'args': ["host", "user", "password", "db"],
+    },
+    {
+        'starter': "mysqli_connect(",
+        'ender': ")",
+        'args': ["host", "user", "password", "db", "port"],
+    },
+    {
+        'starter': "mysqli_connect(",
+        'ender': ")",
+        'args': ["host", "user", "password", "db", "port", "socket"],
+    },
+    {
         'starter': "mysql_connect(",
         'ender': ")",
         'args': ["host", "user", "password"],
+    },
+    {
+        'starter': "mysql_connect(",
+        'ender': ")",
+        'args': ["host", "user", "password", "new_link"],
+        # ^ new_link is bool
+    },
+    {
+        'starter': "mysql_connect(",
+        'ender': ")",
+        'args': ["host", "user", "password", "new_link", "client_flags"],
+        # ^ client_flags is int
     },
 ]
 
@@ -154,20 +182,142 @@ def safe_encode(bs):
 
 
 def partial_format(fmt, d):
-    assert isinstance(fmt, str)
-    assert isinstance(d, dict)
+    """Fully or partially format the Python format string fmt
+    (str, bytes, or bytearray) by collecting keys from dict d
+    that are present in the string in curly braces.
+    """
+    if not isinstance(fmt, str):
+        assert isinstance(fmt, (bytes, bytearray))
+    assert isinstance(d, (dict, OrderedDict))
     partialD = {}
     for key, value in d.items():
-        if ("{%s}" % key) in fmt:
-            partialD[key] = value
-    return fmt.format(**partialD)
+        assert isinstance(key, str), \
+            ("Key should be str regardless of value type, but got {}"
+             .format(repr(key)))
+        if isinstance(fmt, str):
+            if ("{%s}" % key) in fmt:
+                partialD[key] = value
+        else:
+            needle = b"{" + key.encode() + b"}"
+            if needle in fmt:
+                # partialD[key] = value
+                fmt = fmt.replace(needle, value)
+    if isinstance(fmt, str):
+        return fmt.format(**partialD)
+    return fmt
+
+def split_format_chunks(fmt, enclosure=["{", "}"]):
+    """Get fmt as list of strings, still enclosed if were enclosed.
+    Args:
+        fmt (str): A Python string format, or other
+            format if enclosure is set.
+        enclosure (str): enclosures for variable names
+            (or lack thereof such as "{}" allowed in fmt).
+            - auto-converted to bytearray if fmt is bytes or bytearray.
+    """
+    if isinstance(fmt, str):
+        for part in enclosure:
+            assert isinstance(part, str)
+    else:
+        assert isinstance(fmt, (bytes, bytearray))
+        enclosureB = bytearray()
+        # # ^ Change to bytearray so int compare works below!
+        for s in enclosure:
+            enclosureB += s.encode()
+        enclosure = enclosureB
+        assert isinstance(enclosure, bytearray)
+        assert isinstance(enclosure[0], int)
+
+    i = -1
+    chunks = []
+    literalI = 0
+    while i + 1 < len(fmt):
+        i += 1
+        if fmt[i] == enclosure[0]:
+            if literalI != i:
+                chunks.append(fmt[literalI:i])
+            end = fmt.find(enclosure[1], i)
+            literalI = end + 1
+            if end < 0:
+                raise ValueError("Start %s without %s in %s"
+                                 % (repr(enclosure[0]), repr(enclosure[1]),
+                                    repr(fmt)))
+            # key = fmt[i+1:end]
+            interpolator = fmt[i:end+1]
+            chunks.append(interpolator)
+            i = end
+    if literalI < len(fmt):
+        chunks.append(fmt[literalI:])
+    return chunks
+
+
+def unformat(formatted, fmt, enclosure=["{", "}"]):
+    # type: (str, str, list[str]) -> OrderedDict
+    """Disassemble a string into a dict using a Python format string"""
+    separators = ""
+    if isinstance(formatted, str):
+        assert isinstance(fmt, str)
+    else:
+        assert isinstance(formatted, (bytes, bytearray))
+        assert isinstance(fmt, (bytes, bytearray))
+        separators = bytearray()
+        enclosureB = []
+        # # ^ Change to bytearray so int compare works below!
+        for s in enclosure:
+            enclosureB.append(s.encode())
+        enclosure = enclosureB
+        assert isinstance(enclosure, list)
+        assert isinstance(enclosure[0], (bytes, bytearray))
+        assert isinstance(enclosure[0][0], int)
+
+    d = OrderedDict()
+    # keys = get_format_keys(fmt)
+    chunks = split_format_chunks(fmt)
+    start = 0
+    end = 0
+    for chunkI, chunk in enumerate(chunks):
+        if isinstance(formatted, str):
+            assert isinstance(chunk, str)
+        else:
+            assert isinstance(chunk, (bytes, bytearray))
+        if chunk.startswith(enclosure[0]):
+            key = chunk[1:-1]
+            if chunkI + 1 < len(chunks):
+                if not chunks[chunkI+1].startswith(enclosure[0]):
+                    end = formatted.find(chunks[chunkI+1], start)
+                    if end < 0:
+                        raise ValueError(
+                            "{} does not match format {} (missing {} at {})"
+                            .format(repr(formatted), repr(fmt),
+                                    repr(chunks[chunkI+1]), start))
+                else:
+                    raise NotImplementedError(
+                        "Chunk not followed by delimiter is not supported"
+                        " (unsupported format={})".format(repr(fmt)))
+            else:
+                # There are no more chunks, capture the rest of the
+                #   input.
+                end = len(formatted)
+            if isinstance(key, str):
+                d[key] = formatted[start:end]
+            else:
+                d[key.decode()] = formatted[start:end]
+            start = end
+        else:
+            delimiterI = formatted.find(chunk, start)
+            if delimiterI < 0:
+                raise ValueError("{} is missing delimiter {} at/after {}"
+                                 .format(repr(formatted), repr(chunk), start))
+            start = delimiterI + len(chunk)
+
+    return d
 
 
 def get_format_keys(fmt, enclosure=["{", "}"]):
     keys = []
     if isinstance(fmt, (bytes, bytearray)):
         enclosureB = bytearray()
-        # ^ Change to bytearray so int compare works below!
+        # # ^ Change to bytearray so int compare works below!
         for s in enclosure:
             enclosureB += s.encode()
         enclosure = enclosureB
@@ -480,9 +630,22 @@ def read_binary_lines(path):
 def redact_file(path, destPath=None, max_blank=0,
                 remove_whitespace=False, redact=None,
                 extensions=[".php", ".htm", ".html", ".js", ".inc"],
-                tmpPath=None):
+                tmpPath=None, originalPath=None):
     dotExtLower = os.path.splitext(path)[1].lower()
-    redact = redact['mysql']
+    pathMsg = path
+    if originalPath:
+        pathMsg = originalPath
+    # Make paths with spaces clickable in VS Code:
+    # pathMsg = 'File: "{}"'.format(pathMsg)  # Doesn't help
+    pathMsg = f'file://{urllib.parse.quote(pathMsg)}'
+
+    pathSub = os.path.split(path)[1]
+    if pathSub in redact['exclude']:
+        logger.warning("{}: Skipping excluded file.".format(pathMsg))
+        return
+
+    assert 'mysql' in redact, '"mysql" required in "redact" anewcommit.json'
+    mysqlD = redact['mysql']
     if extensions:
         if dotExtLower not in extensions:
             # Not a PHP file, so can't redact.
@@ -526,7 +689,7 @@ def redact_file(path, destPath=None, max_blank=0,
                     continue
             else:
                 blanks = 0
-            if redact:
+            if mysqlD:
                 for f_i, s_call_format in enumerate(DB_LINE_FORMATS):
                     call_format = {}
                     for cKey, cValue in s_call_format.items():
@@ -544,15 +707,39 @@ def redact_file(path, destPath=None, max_blank=0,
                     endI = line.find(
                         call_format['ender'],
                         argsI)
+
+                    # Preliminary split in case of multiline:
+                    argsB = line[argsI:-1]
+                    secrets = argsB.split(b",")
+                    for i, secret in enumerate(secrets):
+                        secrets[i] = secret.strip()
+
                     if endI < 0:
+                        if s_call_format['starter'] in ("define(", "define ("):
+                            sensitive_var = None
+                            sensitive_vars = []
+                            for tryFormat in DB_LINE_FORMATS:
+                                if tryFormat['starter'] not in ("define(", "define ("):
+                                    continue
+                                sensitive_vars.append(tryFormat['args'][0])
+                                if secrets[0] == tryFormat['args'][0]:
+                                    sensitive_var = secrets[0]
+                            if sensitive_var is None:
+                                logger.warning(
+                                    "{}, {}: Not redacting line since {}"
+                                    " is not known to be a sensitive var"
+                                    " (only will redact {})"
+                                    .format(pathMsg, lineN, secrets[0],
+                                            sensitive_vars))
+                                break
                         raise NotImplementedError(
-                            "Multiline SQL is not implemented: {}"
-                            .format(line))
+                            "{}, line {}: Multiline SQL is not implemented: {}"
+                            .format(pathMsg, lineN, line))
                     argsB = line[argsI:endI]
                     secrets = argsB.split(b",")
                     secretsD = OrderedDict()
-                    for i, argName in enumerate(secrets):
-                        secrets[i] = argName.strip()
+                    for i, secret in enumerate(secrets):
+                        secrets[i] = secret.strip()
 
                     # Unless a certain literal is required
                     #   (such as define('SQLC...):
@@ -574,16 +761,22 @@ def redact_file(path, destPath=None, max_blank=0,
                                 if len(other['args']) == len(secrets):
                                     other_format = other
                         if other_format is None:
+                            if not argsB.strip():
+                                logger.warning(
+                                    "{}, line {}: Not redacting line"
+                                    " due to no args: {}"
+                                    .format(pathMsg, lineN, line))
+                                break
                             raise NotImplementedError(
                                 "{}, line {}: Not modifying line due"
                                 " to {} args"
                                 " (no matching function in db_line_formats,"
                                 " known arg counts for {} are {}): {}"
-                                .format(path, lineN, len(secrets),
+                                .format(pathMsg, lineN, len(secrets),
                                         call_format['starter'], counts,
                                         line))
                         continue  # match later is guaranteed in this case
-                    for i, argName in enumerate(secrets):
+                    for i, secret in enumerate(secrets):
                         keyStr = s_call_format['args'][i]
                         # *Only* clear *before* not during line
                         #    (otherwise earlier args would be lost!).
@@ -592,27 +785,38 @@ def redact_file(path, destPath=None, max_blank=0,
                         #     #   credentials (db can be selected later).
                             persistentArgD = {}
                     hasLiterals = False
-                    for i, argName in enumerate(secrets):
-                        if argName.startswith(b"'"):
-                            argName = argName[1:-1].replace(b"\'", b"'")
-                            secrets[i] = argName
-                        elif argName.startswith(b'"'):
-                            argName = argName[1:-1].replace(b"\\\"", b"\"")
-                            secrets[i] = argName
-                            if not argName.startswith(b"$"):
+                    for i, secret in enumerate(secrets):
+                        if secret.startswith(b"'"):
+                            secret = secret[1:-1].replace(b"\'", b"'")
+                            secrets[i] = secret
+                            hasLiterals = True
+                        elif secret.startswith(b'"'):
+                            secret = secret[1:-1].replace(b"\\\"", b"\"")
+                            secrets[i] = secret
+                            if not secret.startswith(b"$"):
                                 hasLiterals = True
                         else:
-                            if not argName.startswith(b"$"):
+                            if not secret.startswith(b"$"):
                                 hasLiterals = True
                         keyStr = s_call_format['args'][i]
                         secretsD[keyStr] = secrets[i]
                         assert isinstance(keyStr, str)
-                        persistentArgD[keyStr] = argName
+                        persistentArgD[keyStr] = secret
+                        if keyStr == "formatted_string":
+                            # Split the string into keyed values
+                            #   using the call format.
+                            assert 'string_format' in call_format, \
+                                "'string_format' required for formatted_string"
+                            assert s_call_format['args'][i] == "formatted_string", \
+                                "{} != 'formatted_string'".format(repr(s_call_format['args'][i]))
+                            persistentArgD.update(
+                                unformat(secret, call_format['string_format'])
+                            )
                     if not hasLiterals:
                         logger.warning(
                             "{}, line {}: Not redacting line"
                             " since no arguments are literals: {}"
-                            .format(path, lineN, line))
+                            .format(pathMsg, lineN, line))
                         break
                     newArgs = []
                     alias = None  # type: str|None
@@ -624,14 +828,14 @@ def redact_file(path, destPath=None, max_blank=0,
                             matchKey = None
                     # if b'user' in call_format['args']:
                     if matchKey and (matchKey in persistentArgD):
-                        for redactI, tryRedact in enumerate(redact):
+                        for redactI, tryRedact in enumerate(mysqlD):
                             # keys: alias, db, host, user, password
                             if (tryRedact[matchKey].encode()
                                     == persistentArgD[matchKey]):
                                 if 'host' not in persistentArgD:
                                     logger.warning(
-                                        "host not detected in {} for line: {}"
-                                        .format(persistentArgD, line))
+                                        "{}, line {}: host not detected in {} for line: {}"
+                                        .format(pathMsg, lineN, persistentArgD, line))
                                     continue
                                 elif (tryRedact['host'].encode()
                                       == persistentArgD['host']):
@@ -640,8 +844,9 @@ def redact_file(path, destPath=None, max_blank=0,
                                 elif persistentArgD['host'] == b"localhost":
                                     alias = tryRedact['alias']
                                     logger.warning(
-                                        "Assuming alias {} but host {} != {}"
-                                        .format(tryRedact['alias'],
+                                        "{}, line {}: Assuming alias {} but host {} != {}"
+                                        .format(pathMsg, lineN,
+                                                tryRedact['alias'],
                                                 tryRedact['host'],
                                                 persistentArgD['host'])
                                     )
@@ -665,16 +870,22 @@ def redact_file(path, destPath=None, max_blank=0,
                         #     raise NotImplementedError(
                         #         "{}, line {}: db and {}"
                         #         " did not appear in: {}"
-                        #         .format(path, lineN, matchKey, line))
+                        #         .format(pathMsg, lineN, matchKey, line))
                     if alias is None:
                         alias = persistentArgD.get('alias')
                     else:
                         persistentArgD['alias'] = alias
                     if alias is None:
+                        if persistentArgD['user'] == b"User":
+                            if persistentArgD['password'] == b"Password":
+                                # It is just the example from
+                                #   xajaxGrid/INSTALL file, so ignore it
+                                #   (There is nothing to hide).
+                                break  # Keep the line intact
                         raise NotImplementedError(
                             "{}, line {}: db or user (tried {}, found {})"
                             " did not appear before or in: {}"
-                            .format(path, lineN, matchKey, persistentArgD,
+                            .format(pathMsg, lineN, matchKey, persistentArgD,
                                     line))
                     for i, argName in enumerate(call_format['args']):
                         oldValue = secrets[i]
@@ -684,19 +895,18 @@ def redact_file(path, destPath=None, max_blank=0,
                             newArgs.append(oldValue)
                         elif argName == b"formatted_string":
                             varNames = get_format_keys(
-                                call_format['string_format'])
+                                s_call_format['string_format'])
                             # formatted = partial_format(
                             #     call_format['string_format'],
                             #     redact)
                             phpVars = {}
                             for _key in varNames:
                                 phpVars[_key] = \
-                                    (b"{$redact->"+alias.encode()+b"->"+_key
+                                    (b"{$redact->"+alias.encode()+b"->"+_key.encode()
                                      +b"}")
-                            formatted = \
-                                call_format['string_format'].format(
-                                    **phpVars
-                                )
+                            formatted = partial_format(
+                                call_format['string_format'],
+                                phpVars)
                             newArgs.append(
                                 b'"' + formatted.replace(b"'", b"\\'") + b"'")
                         else:
@@ -708,7 +918,7 @@ def redact_file(path, destPath=None, max_blank=0,
                                         findArgI = _i
                                         break
                                 if findArgI:
-                                    for rI, rDict in enumerate(redact):
+                                    for rI, rDict in enumerate(mysqlD):
                                         assert isinstance(rDict['db'], bytes)
                                         assert isinstance(secrets[findArgI],
                                                           bytes)
@@ -719,7 +929,7 @@ def redact_file(path, destPath=None, max_blank=0,
                                 raise NotImplementedError(
                                     "{}, line {}: Database name wasn't defined"
                                     " before using it: {}...{}"
-                                    .format(path, lineN,
+                                    .format(pathMsg, lineN,
                                             safe_encode(line[:argsI]),
                                             safe_encode(line[endI:])))
                             newArgs.append(
@@ -732,11 +942,11 @@ def redact_file(path, destPath=None, max_blank=0,
                           .format(oldLine, line))
                     replaced_count += 1
                     break  # NOTE: break: redact only 1 statement/line
-                for redaction in redact:
+                for redaction in mysqlD:
                     if redaction['password'].encode() in line:
                         error = (
                             "{}, line {}: password {} was not removed!: {}"
-                            .format(repr(path), lineN,
+                            .format(pathMsg, lineN,
                                     repr(redaction['password']), line))
                         if redaction['user'].encode() in line:
                             raise NotImplementedError(error)
@@ -756,12 +966,13 @@ def redact_file(path, destPath=None, max_blank=0,
         logger.warning(
             "{}: Didn't add require statements since no multiline"
             " `<?php` block."
-            .format(path))
+            .format(pathMsg))
 
 
 def redact_all(path, recursive=True, destPath=None, max_blank=0,
                remove_whitespace=False, redact=None,
-               extensions=[".php", ".htm", ".html", ".js", ".inc"]):
+               extensions=[".php", ".htm", ".html", ".js", ".inc"],
+               originalPath=None):
     """Remove extra newlines from text file(s).
     If binary, as determined by non-text characters present
     (unless extension is in TEXT_DOT_EXTS), is not processed.
@@ -795,7 +1006,8 @@ def redact_all(path, recursive=True, destPath=None, max_blank=0,
             tmpPath = path + ".tmp"
             redact_file(path, destPath=destPath, max_blank=max_blank,
                         remove_whitespace=remove_whitespace, redact=redact,
-                        extensions=extensions, tmpPath=tmpPath)
+                        extensions=extensions, tmpPath=tmpPath,
+                        originalPath=originalPath)
         except UnicodeDecodeError:
             logger.error("Not a unicode file: {}".format(repr(path)))
             if os.path.isfile(tmpPath):
@@ -806,8 +1018,11 @@ def redact_all(path, recursive=True, destPath=None, max_blank=0,
         return
     for sub in os.listdir(path):
         subPath = os.path.join(path, sub)
-        # Do *not* forward the destPath argument (It raises exception
-        #   for a non-file above anyway).
+        # Do *not* forward destPath argument (raises
+        #   exception for a non-file above anyway).
+        originalSubPath = None
+        if originalPath:
+            originalSubPath = os.path.join(originalPath, sub)
         redact_all(
             subPath,
             recursive=recursive,
@@ -815,6 +1030,7 @@ def redact_all(path, recursive=True, destPath=None, max_blank=0,
             remove_whitespace=remove_whitespace,
             redact=redact,
             extensions=extensions,
+            originalPath=originalSubPath,
         )
 
 
@@ -1752,7 +1968,6 @@ class ANCProject:
                 progress_subpart = -progress_subpart_increment
                 src = None
                 dst = None
-                copied_list = []
                 preprocess = action.get('preprocesses')
                 for statement_i, statement_d in enumerate(statements):
                     assert isinstance(statement_d, (dict, OrderedDict)), \
@@ -1837,7 +2052,8 @@ class ANCProject:
                                 if pre_command == "remove_blank_lines":
                                     try:
                                         redact_all(srcTemp, redact=this_redact,
-                                                extensions=None)
+                                                   extensions=None,
+                                                   originalPath=src)
                                         # ^ extensions None for security!
                                     except:
                                         logger.warning("Removing tmp: {}"
@@ -1856,8 +2072,9 @@ class ANCProject:
                                   .format(srcTemp, src))
                             try:
                                 redact_all(srcTemp, max_blank=None,
-                                        redact=this_redact,
-                                        extensions=None)
+                                           redact=this_redact,
+                                           extensions=None,
+                                           originalPath=src)
                                 # ^ extensions None for security!
                             except:
                                 logger.warning("Removing tmp: {}"
@@ -1923,6 +2140,7 @@ class ANCProject:
                         ' a mode: {}'.format(repr(action.get('mode')),
                                              VERSION_VERBS)
                     )
+        print("Done generating cache: {}".format(repr(out_dir)))
         return out_dir
 
 

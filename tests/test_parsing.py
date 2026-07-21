@@ -6,6 +6,7 @@ Created on Wed Jul  6 17:35:01 2022
 @author: Jake "Poikilos" Gustafson
 """
 
+from collections import OrderedDict
 import os
 import sys
 import unittest
@@ -19,11 +20,14 @@ if __name__ == "__main__":
 # import anewcommit  # noqa: E402
 from anewcommit import (  # noqa: E402
     echo0,
+    partial_format,
+    split_format_chunks,
     split_statement,
     parse_statement,
     split_root,
     split_subs,
     get_format_keys,
+    unformat,
 )
 
 
@@ -99,9 +103,72 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(keys, ["a", "abc", "def"])
         keys = get_format_keys("{a}{abc}{def}")
         self.assertEqual(keys, ["a", "abc", "def"])
-
-        keys = get_format_keys(b"Hello {a}, the {abc} is {def}.")
+        formatB = b"Hello {a}, the {abc} is {def}."
+        keys = get_format_keys(formatB)
         self.assertEqual(keys, [b"a", b"abc", b"def"])
+
+    def test_split_format_chunks(self):
+        keys = split_format_chunks("Hello {a}, the {abc} is {def}.")
+        self.assertEqual(keys, ["Hello ", "{a}", ", the ", "{abc}", " is ", "{def}", "."])
+        keys = split_format_chunks("Hello {a}, the {abc} is {def}")
+        self.assertEqual(keys, ["Hello ", "{a}", ", the ", "{abc}", " is ", "{def}"])
+        keys = split_format_chunks("{a}, the {abc} is {def}")
+        self.assertEqual(keys, ["{a}", ", the ", "{abc}", " is ", "{def}"])
+        keys = split_format_chunks("{a}{abc}{def}")
+        self.assertEqual(keys, ["{a}", "{abc}", "{def}"])
+        formatB = b"Hello {a}, the {abc} is {def}."
+        keys = split_format_chunks(formatB)
+        self.assertEqual(keys, [b"Hello ", b"{a}", b", the ", b"{abc}", b" is ", b"{def}", b"."])
+
+    def test_unformat(self):
+        fmt = "Hello {a}, the {abc} is {def}."
+        sentence = "Hello Jim, the dilithium is low."
+        d = unformat(sentence, fmt)
+        for key in d:
+            assert isinstance(key, str)
+        goodD = OrderedDict()
+        # Add parts separately since order isn't guaranteed in Python 2
+        #   for the keyword argument constructor of OrderedDict:
+        goodD['a'] = "Jim"
+        goodD['abc'] = "dilithium"
+        goodD['def'] = "low"
+        self.assertEqual(d, goodD)
+
+        formatB = fmt.encode('utf-8')
+        sentenceB = sentence.encode('utf-8')
+        d = unformat(sentenceB, formatB)
+        for key in d:
+            # Must be str even if values are bytes/bytearray!
+            assert isinstance(key, str)
+        goodD = OrderedDict()
+        # Add parts separately since order isn't guaranteed in Python 2
+        #   for the keyword argument constructor of OrderedDict:
+        goodD['a'] = b"Jim"
+        goodD['abc'] = b"dilithium"
+        goodD['def'] = b"low"
+        self.assertEqual(d, goodD)
+
+        sentenceB = b"mysql://user1:password1@host.example.com/db1"
+        formatB = b"mysql://{user}:{password}@{host}/{db}"
+        goodD = OrderedDict()
+        goodD['user'] = b"user1"
+        goodD['password'] = b"password1"
+        goodD['host'] = b"host.example.com"
+        goodD['db'] = b"db1"
+        d = unformat(sentenceB, formatB)
+        self.assertEqual(d, goodD)
+
+    def test_partial_format(self):
+        formatB = b"mysql://{user}:{password}@{host}/{db}"
+        goodD = OrderedDict()
+        goodD['user'] = b"user1"
+        goodD['password'] = b"password1"
+        goodD['host'] = b"host.example.com"
+        goodD['db'] = b"db1"
+        formatted = partial_format(formatB, goodD)
+        self.assertEqual(formatted,
+                         b"mysql://user1:password1@host.example.com/db1")
+
 
 if __name__ == "__main__":
     unittest.main()
