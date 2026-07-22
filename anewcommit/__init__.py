@@ -52,7 +52,7 @@ profile = os.environ.get('HOME')
 if platform.system() == "Windows":
     profile = os.environ.get('USERPROFILE')
 
-DB_LINE_FORMATS = [
+_DB_LINE_FORMATS = [
     {
         'starter': 'EyeMySQLAdap(',
         'ender': ')',
@@ -79,6 +79,8 @@ DB_LINE_FORMATS = [
         'starter': "mysql_select_db(",
         'ender': ")",
         'args': ['db'],
+        # 1 space before "(" is also checked automatically
+        # TODO: ignore whitespace before "("?
     },
     {
         'starter': "mysql_select_db(",
@@ -139,6 +141,14 @@ DB_LINE_FORMATS = [
         # ^ client_flags is int
     },
 ]
+
+DB_LINE_FORMATS = []
+for line_format in _DB_LINE_FORMATS:
+    DB_LINE_FORMATS.append(line_format)
+    if line_format['starter'].endswith("("):
+        spaced_format = copy.deepcopy(line_format)
+        spaced_format['starter'] = spaced_format['starter'][:-1] + " " + spaced_format['starter'][-1:]
+        DB_LINE_FORMATS.append(spaced_format)
 
 REDACTION_REQUIRES = b"""
 if (file_exists("../redact.php")) {
@@ -631,6 +641,7 @@ def redact_file(path, destPath=None, max_blank=0,
                 remove_whitespace=False, redact=None,
                 extensions=[".php", ".htm", ".html", ".js", ".inc"],
                 tmpPath=None, originalPath=None):
+    assert os.path.isfile(path)
     dotExtLower = os.path.splitext(path)[1].lower()
     pathMsg = path
     if originalPath:
@@ -657,8 +668,8 @@ def redact_file(path, destPath=None, max_blank=0,
                             " text is due to text due to extension: {}"
                             .format(repr(path)))
         else:
-            logger.warning("* [redact_all] skipping binary: {}"
-                            .format(repr(path)))
+            logger.debug("* [redact_all] skipping binary: {}"
+                         .format(repr(path)))
             return
     if destPath is None:
         destPath = path
@@ -676,8 +687,31 @@ def redact_file(path, destPath=None, max_blank=0,
         lines = None
         with open(path, "rb") as ins:
             lines = ins.readlines()
-        for line in lines:
+        processedLines = OrderedDict()
+        lineI = -1
+        while lineI + 1 < len(lines):
+            lineI += 1
             lineN += 1  # start at 1
+            key = lineN
+            openers = lines[lineI].count(b"(")
+            closers = lines[lineI].count(b")")
+            if openers > closers:
+                if lineI + 1 < len(lines):
+                    openers = lines[lineI+1].count(b"(")
+                    closers = lines[lineI+1].count(b")")
+                    if closers > openers:
+                        # Combine the lines due to two-line statement
+                        # NOTE: could also implement multi-line similarly
+                        lines[lineI] += lines[lineI+1]
+                        logger.warning(
+                            "{}, line {}: Examining two lines"
+                            " as one statement: {}"
+                            .format(pathMsg, lineN, lines[lineI]))
+                        del lines[lineI+1]
+                        lineN += 1  # Count combined&skipped one
+                        # but don't increment lineI--That is the next 1
+            processedLines[key] = lines[lineI]
+        for lineN, line in processedLines.items():
             processedLine = line
             if remove_whitespace:
                 processedLine = line.strip()
@@ -719,7 +753,8 @@ def redact_file(path, destPath=None, max_blank=0,
                             sensitive_var = None
                             sensitive_vars = []
                             for tryFormat in DB_LINE_FORMATS:
-                                if tryFormat['starter'] not in ("define(", "define ("):
+                                if (tryFormat['starter']
+                                        not in ("define(", "define (")):
                                     continue
                                 sensitive_vars.append(tryFormat['args'][0])
                                 if secrets[0] == tryFormat['args'][0]:
@@ -756,7 +791,8 @@ def redact_file(path, destPath=None, max_blank=0,
                         other_format = None
                         counts = [len(call_format['args'])]
                         for other in DB_LINE_FORMATS[f_i+1:]:
-                            if other['starter'].encode() == call_format['starter']:
+                            if (other['starter'].encode()
+                                    == call_format['starter']):
                                 counts.append(len(other['args']))
                                 if len(other['args']) == len(secrets):
                                     other_format = other
@@ -807,8 +843,10 @@ def redact_file(path, destPath=None, max_blank=0,
                             #   using the call format.
                             assert 'string_format' in call_format, \
                                 "'string_format' required for formatted_string"
-                            assert s_call_format['args'][i] == "formatted_string", \
-                                "{} != 'formatted_string'".format(repr(s_call_format['args'][i]))
+                            assert (s_call_format['args'][i]
+                                    == "formatted_string"), \
+                                ("{} != 'formatted_string'"
+                                 .format(repr(s_call_format['args'][i])))
                             persistentArgD.update(
                                 unformat(secret, call_format['string_format'])
                             )
@@ -834,8 +872,10 @@ def redact_file(path, destPath=None, max_blank=0,
                                     == persistentArgD[matchKey]):
                                 if 'host' not in persistentArgD:
                                     logger.warning(
-                                        "{}, line {}: host not detected in {} for line: {}"
-                                        .format(pathMsg, lineN, persistentArgD, line))
+                                        "{}, line {}: host not detected in {}"
+                                        " for line: {}"
+                                        .format(pathMsg, lineN, persistentArgD,
+                                                line))
                                     continue
                                 elif (tryRedact['host'].encode()
                                       == persistentArgD['host']):
@@ -844,7 +884,8 @@ def redact_file(path, destPath=None, max_blank=0,
                                 elif persistentArgD['host'] == b"localhost":
                                     alias = tryRedact['alias']
                                     logger.warning(
-                                        "{}, line {}: Assuming alias {} but host {} != {}"
+                                        "{}, line {}: Assuming alias {}"
+                                        " but host {} != {}"
                                         .format(pathMsg, lineN,
                                                 tryRedact['alias'],
                                                 tryRedact['host'],
@@ -861,7 +902,7 @@ def redact_file(path, destPath=None, max_blank=0,
                                     )
                                     break
                             else:
-                                logger.warning(
+                                logger.debug(
                                     "{} != {}"
                                     .format(tryRedact[matchKey],
                                             persistentArgD[matchKey])
@@ -902,13 +943,13 @@ def redact_file(path, destPath=None, max_blank=0,
                             phpVars = {}
                             for _key in varNames:
                                 phpVars[_key] = \
-                                    (b"{$redact->"+alias.encode()+b"->"+_key.encode()
-                                     +b"}")
+                                    (b"{$redact->"+alias.encode()+b"->"
+                                     +_key.encode()+b"}")
                             formatted = partial_format(
                                 call_format['string_format'],
                                 phpVars)
                             newArgs.append(
-                                b'"' + formatted.replace(b"'", b"\\'") + b"'")
+                                b'"' + formatted.replace(b'"', b'\\"') + b'"')
                         else:
                             if alias is None:
                                 findArgI = None
@@ -933,8 +974,8 @@ def redact_file(path, destPath=None, max_blank=0,
                                             safe_encode(line[:argsI]),
                                             safe_encode(line[endI:])))
                             newArgs.append(
-                                b"{$redact->"+alias.encode()+b"->"+argName
-                                +b"}")
+                                b"\"{$redact->"+alias.encode()+b"->"+argName
+                                +b"}\"")
                     oldLine = line
                     line = (line[:argsI] + b", ".join(newArgs)
                             + line[endI:])
@@ -954,17 +995,18 @@ def redact_file(path, destPath=None, max_blank=0,
                             # Maybe the password was too generic,
                             #   and was found in some other context.
                             logger.warning(error)
-            if (b"<?php" in line) and (b"?>" not in line):
+            outs.write(line)
+            if ((b"<?php" in line) and (b"?>" not in line)
+                    or (b"<?" in line) and (b"?>" not in line)):
                 if not added_requires:
                     outs.write(REDACTION_REQUIRES)
                     added_requires = True
-            outs.write(line)
     if os.path.isfile(destPath):
         os.remove(destPath)
     shutil.move(tmpPath, destPath)
     if replaced_count > 0 and not added_requires:
         logger.warning(
-            "{}: Didn't add require statements since no multiline"
+            "{}: Didn't add require statements since there is no multiline"
             " `<?php` block."
             .format(pathMsg))
 
@@ -1735,9 +1777,9 @@ class ANCProject:
     def swap(self, index, other_index, add_undo_step=True):
         '''
         Args:
-            add_undo_step (optional, bool) This should only be False if an undo/redo is doing the
-                step, or there is some particular internal reason not to record a
-                step.
+            add_undo_step (optional, bool) This should only be False if
+                an undo/redo is doing the step, or there is some
+                particular internal reason not to record a step.
         '''
         tmp_action = self._actions[index]
         self._actions[index] = self._actions[other_index]
@@ -1876,12 +1918,28 @@ class ANCProject:
             echo0('* There is no "{}"'.format(gitignore_path))
             return None, None
         # ignore_root = os.path.dirname(gitignore_path)
-        return gitignore_to_rsync_pair(
+        includePath, excludePath = gitignore_to_rsync_pair(
             gitignore_path,
             rsync_from,
             self.get_cache_dir(),
             ignore_root=ignore_root,
         )
+        exclude_any = os.path.isfile(excludePath)
+        redact = self.data.get('redact')
+        if redact:
+            more_ex = redact.get('exclude')
+            if more_ex:
+                with open(excludePath, "a") as outs:
+                    for thisExclude in more_ex:
+                        exclude_any = True
+                        if not thisExclude.startswith("*"):
+                            thisExclude = "*/" + thisExclude
+                        outs.write(thisExclude + "\n")
+        if not exclude_any:
+            excludePath = None
+        if not os.path.isfile(includePath):
+            includePath = None
+        return includePath, excludePath
 
     def get_cache_dir(self):
         project_dir = self.get_project_dir()
@@ -1936,13 +1994,32 @@ class ANCProject:
         for index, action in enumerate(self._actions):
             if action.get('luid') is None:
                 logger.warning(f"Action {[index]} is missing 'luid'")
+        done_subs = []
         for index in range(start, last_i+1):
+            # NOTE: Only one iteration if increment_dir is set.
             action = self._actions[index]
             progress_f = float(index) / progress_max
             if not do_uncommitted:
                 if action.get('commit') is not True:
                     continue
             if action['verb'] in VERSION_VERBS:
+                shPath = os.path.join(out_dir, "restored.sh")
+                if os.path.isfile(shPath):
+                    os.remove(shPath)  # remove one from a previous action
+                srcMetaPath = os.path.join(action['path'],
+                                           "anewcommit.sitestate.json")
+                dstMetaPath = os.path.join(out_dir,
+                                           "anewcommit.sitestate.json")
+                assert dstMetaPath != srcMetaPath
+                if os.path.isfile(dstMetaPath):
+                    os.remove(dstMetaPath)
+                if os.path.isfile(srcMetaPath):
+                    print("cp {} {}".format(repr(srcMetaPath),
+                                            repr(dstMetaPath)))
+                    shutil.copy(srcMetaPath, dstMetaPath)
+                else:
+                    logger.warning(
+                        "No {}".format(repr(srcMetaPath)))
                 mode = action['mode']  # The mode only applies to 'get_version'
                 cmd_start = [
                     'rsync',
@@ -1995,7 +2072,7 @@ class ANCProject:
                     # dstSub = statement_d.get('destination')
                     # assert dstSub, \
                     #     f"redact missing destination in {statement_d}"
-                    #     # f"redact missing dst. name after 'as' in {statement}"
+                    #     # f"redact missing name after 'as' in {statement}"
                     # otherwise implement using without destination
                     #   (Using source as root of destination)
                     # srcSub = statement_d.get('source')
@@ -2010,13 +2087,15 @@ class ANCProject:
                     print("{}%".format(round(progress_f*100.0, 1)))
                     cmd_parts = cmd_start.copy()
                     srcRoot = join_action_path(action, statement_d, 'source')
-                    dstRoot = join_action_path(action, statement_d, 'destination',
+                    dstRoot = join_action_path(action, statement_d,
+                                               'destination',
                                                path=out_dir)
                     # src = os.path.join(srcRoot,srcSub) if srcSub else srcRoot
                     # dst = os.path.join(dstRoot, dstSub)
                     # NOTE: join_action_path already adds sub!
                     src = srcRoot
                     dst = dstRoot
+                    done_subs.append(statement_d['source'])
                     ignore_root = src
                     # source_parts = None
                     # if action.get('source') is not None:
@@ -2037,6 +2116,10 @@ class ANCProject:
                         #   so we don't mangle src nor dest.
                         srcTemp = dst + "-statement-{}-tmp".format(statement_i)
                         shutil.copytree(src, srcTemp)
+                        with open(shPath, "a") as shOut:
+                            shOut.write("rsync -rt {} {}\n"
+                                        .format(repr(src), repr(srcTemp)))
+
                         # ^ copytree raises FileExistsError if dst exists.
                         print("* generating {}".format(repr(srcTemp)))
                         redacted = False
@@ -2089,6 +2172,15 @@ class ANCProject:
                         ignore_root,
                         src,
                     )
+                    for rsync_tmp in (include_tmp, exclude_tmp):
+                        if not rsync_tmp:
+                            continue
+                        rsync_name = os.path.split(rsync_tmp)[1]
+                        rsync_dst = os.path.join(
+                            out_dir,
+                            "statement-{}-{}".format(statement_i, rsync_name))
+                        if os.path.isfile(rsync_tmp):
+                            shutil.copy(rsync_tmp, rsync_dst)
                     # The FIRST pattern is matched when using rsync, so
                     #   include must come first:
                     if include_tmp is not None:
@@ -2106,8 +2198,11 @@ class ANCProject:
                         os.makedirs(dst)
 
                     # See <https://stackoverflow.com/a/61139019/4541104>:
-                    print("[generate_cache] running: {}"
-                          .format(shlex.join(cmd_parts)))
+                    cmdStr = shlex.join(cmd_parts)
+                    with open(shPath, "a") as shOut:
+                        shOut.write(cmdStr + "\n")
+                        print("* updated {}".format(repr(shPath)))
+                    print("[generate_cache] running: {}".format(cmdStr))
                     with subprocess.Popen(
                         cmd_parts, stdout=subprocess.PIPE, text=True,
                     ) as process:
@@ -2133,14 +2228,16 @@ class ANCProject:
                 pass
             # TRANSITION_VERBS "pre_process", "post_process", "no_op"
             else:
-                raise NotImplementedError(f"verb {action['verb']} is not implemented")
+                raise NotImplementedError(
+                    f"verb {action['verb']} is not implemented")
                 if action.get('mode') is not None:
                     raise ValueError(
                         'Mode is {} but only the following verbs should have'
                         ' a mode: {}'.format(repr(action.get('mode')),
                                              VERSION_VERBS)
                     )
-        print("Done generating cache: {}".format(repr(out_dir)))
+        print("Done generating cache: {} in {}"
+              .format(done_subs, repr(out_dir)))
         return out_dir
 
 
